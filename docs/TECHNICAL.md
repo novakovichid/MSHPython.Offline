@@ -52,12 +52,16 @@ Python-Portable - Codex/
 - Поле ввода — отдельный `Text` между редактором и консолью.
 - `Enter` отправляет текст в stdin процесса, `Ctrl+Enter` вставляет перенос.
 - Каждый ввод отображается в консоли с префиксом `>`.
+- В turtle‑режиме `input()` заменяется на чтение из GUI‑очереди (`input_queue`).
 
 ## Turtle‑режим
 - Если код содержит `import turtle` или `from turtle import ...`,
   запуск идёт **внутри процесса IDE**, без subprocess.
 - Справа появляется панель с `Canvas`, на котором создаётся `turtle.TurtleScreen`.
 - `turtle.done/exitonclick/mainloop/bye` переопределяются в no‑op.
+- `builtins.input` и `globals()['input']` подменяются, чтобы ввод работал в turtle‑режиме.
+- `turtle._getscreen` и `turtle._getcanvas` указывают на встроенный `Canvas`.
+- Координаты экрана синхронизируются с размером встроенной панели (центр в (0, 0)).
 - Рисунок остаётся видимым после завершения кода.
 
 ## Темы
