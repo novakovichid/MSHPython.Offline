@@ -7,3 +7,6 @@
 *.tar.xz
 *.gz
 .downloads/
+.runtime/
+__pycache__/
+*.pyc

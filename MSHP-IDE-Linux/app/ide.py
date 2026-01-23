@@ -46,6 +46,8 @@ THEMES = {
         'run_bg_active': '#22c55e',
         'stop_bg': '#dc2626',
         'stop_bg_active': '#ef4444',
+        'stop_bg_disabled': '#f3c6c6',
+        'stop_fg_disabled': '#7f1d1d',
         'editor_bg': '#ffffff',
         'editor_fg': '#0f172a',
         'console_bg': '#f8fbff',
@@ -85,6 +87,8 @@ THEMES = {
         'run_bg_active': '#22c55e',
         'stop_bg': '#ef4444',
         'stop_bg_active': '#f87171',
+        'stop_bg_disabled': '#3b1f1f',
+        'stop_fg_disabled': '#a1a1aa',
         'editor_bg': '#0f172a',
         'editor_fg': '#e2e8f0',
         'console_bg': '#0b1325',
@@ -202,6 +206,7 @@ class EditorTab:
         self.text.bind('<Button-4>', self.on_scroll_event)
         self.text.bind('<Button-5>', self.on_scroll_event)
         self.text.bind('<Configure>', self.on_scroll_event)
+        self.text.bind('<Tab>', lambda e: self.app._indent_or_tab(self.text))
 
         self.app.bind_text_shortcuts(self.text)
         self.apply_theme()
@@ -341,6 +346,7 @@ class PortableIDE(tk.Tk):
         self.turtle_abort = False
         self._turtle_custom_coords = False
         self._turtle_setworld = None
+        self._turtle_initialized = False
         self._closing = False
         self._main_created = False
         self._module_counter = 0
@@ -403,8 +409,8 @@ class PortableIDE(tk.Tk):
         style.configure('Stop.TButton', background=theme['stop_bg'], foreground='white', padding=(14, 6), borderwidth=0)
         style.map(
             'Stop.TButton',
-            background=[('active', theme['stop_bg_active'])],
-            foreground=[('active', 'white')],
+            background=[('disabled', theme['stop_bg_disabled']), ('active', theme['stop_bg_active'])],
+            foreground=[('disabled', theme['stop_fg_disabled']), ('active', 'white')],
         )
         style.configure('TNotebook', background=theme['app_bg'], borderwidth=0)
         style.configure(
@@ -587,8 +593,12 @@ class PortableIDE(tk.Tk):
         self.run_menu.add_separator()
         self.run_menu.add_command(label='🧹 Очистить консоль', command=self.clear_console)
 
+        self.tools_menu = tk.Menu(self.menubar, tearoff=0)
+        self.tools_menu.add_command(label='↦ Сделать отступ', command=self.indent_selection)
+
         self.menubar.add_cascade(label='Файл', menu=self.file_menu)
         self.menubar.add_cascade(label='Запуск', menu=self.run_menu)
+        self.menubar.add_cascade(label='Полезное', menu=self.tools_menu)
         self.menubar.add_command(label='⚙ Настройки', command=self._open_settings)
         self.config(menu=self.menubar)
         self._apply_menu_theme()
@@ -698,7 +708,7 @@ class PortableIDE(tk.Tk):
         if not hasattr(self, 'menubar'):
             return
         theme = self.theme
-        for menu in (self.menubar, self.file_menu, self.run_menu):
+        for menu in (self.menubar, self.file_menu, self.run_menu, self.tools_menu):
             menu.configure(
                 background=theme['menu_bg'],
                 foreground=theme['menu_fg'],
@@ -785,6 +795,36 @@ class PortableIDE(tk.Tk):
         if tab:
             return tab.text
         return None
+
+    def indent_selection(self) -> None:
+        tab = self.get_current_tab()
+        if not tab:
+            return
+        self._indent_selection(tab.text)
+
+    def _indent_or_tab(self, widget: tk.Text) -> str:
+        if widget.tag_ranges('sel'):
+            return self._indent_selection(widget)
+        widget.insert('insert', '    ')
+        return 'break'
+
+    def _indent_selection(self, widget: tk.Text) -> str:
+        try:
+            start = widget.index('sel.first')
+            end = widget.index('sel.last')
+        except tk.TclError:
+            widget.insert('insert', '    ')
+            return 'break'
+        start_line = int(start.split('.')[0])
+        end_line = int(end.split('.')[0])
+        if end.endswith('.0') and end_line > start_line:
+            end_line -= 1
+        widget.edit_separator()
+        for line in range(start_line, end_line + 1):
+            widget.insert(f'{line}.0', '    ')
+        widget.tag_remove('sel', '1.0', 'end')
+        widget.tag_add('sel', f'{start_line}.0', f'{end_line}.end')
+        return 'break'
 
     def _on_input_focus_in(self, _event=None) -> None:
         self.input_text.configure(background=self.theme['input_bg_focus'])
@@ -930,17 +970,25 @@ class PortableIDE(tk.Tk):
             self.main_tab = tab
 
     def open_file(self) -> None:
-        path = filedialog.askopenfilename(filetypes=[('Python', '*.py'), ('All files', '*.*')])
+        path = filedialog.askopenfilename(
+            parent=self,
+            filetypes=[('Python', '*.py'), ('All files', '*.*')],
+        )
         if not path:
             return
         file_path = Path(path)
-        content = read_text_file(file_path)
+        try:
+            content = read_text_file(file_path)
+        except Exception as exc:
+            messagebox.showerror('Не удалось открыть', str(exc))
+            return
         main_tab = self.main_tab or self._ensure_main_tab()
         if main_tab and not main_tab.path and not main_tab.modified and not main_tab.get_content().strip():
             main_tab.path = file_path
             main_tab.set_content(content)
             self.notebook.select(main_tab.frame)
             main_tab.text.focus_set()
+            self.update_tab_title(main_tab)
             return
         tab = EditorTab(self, file_path)
         tab.set_content(content)
@@ -1061,8 +1109,18 @@ class PortableIDE(tk.Tk):
         if not self._main_created:
             self._main_created = True
             return 'main.py'
-        self._module_counter += 1
-        return f'module{self._module_counter}.py'
+        used = set()
+        for tab in self.tabs_by_frame.values():
+            name = tab.path.name if tab.path else (tab.virtual_name or '')
+            lower = name.lower()
+            if lower.startswith('module') and lower.endswith('.py'):
+                digits = lower[6:-3]
+                if digits.isdigit():
+                    used.add(int(digits))
+        index = 1
+        while index in used:
+            index += 1
+        return f'module{index}.py'
 
     def _ensure_main_tab(self) -> EditorTab:
         if self.main_tab:
@@ -1300,12 +1358,20 @@ class PortableIDE(tk.Tk):
         import turtle
 
         self._show_turtle_panel(True)
-        self.turtle_canvas.delete('all')
         self.turtle_canvas.focus_set()
 
-        turtle.Turtle._screen = None
-        turtle.Turtle._pen = None
-        self.turtle_screen = turtle.TurtleScreen(self.turtle_canvas)
+        if not self._turtle_initialized or not self.turtle_screen:
+            self.turtle_canvas.delete('all')
+            turtle.Turtle._screen = None
+            turtle.Turtle._pen = None
+            self.turtle_screen = turtle.TurtleScreen(self.turtle_canvas)
+            self._turtle_initialized = True
+        else:
+            try:
+                self.turtle_screen.clear()
+            except Exception:
+                self.turtle_canvas.delete('all')
+
         self.update_idletasks()
         self._turtle_custom_coords = False
         self._turtle_setworld = self.turtle_screen.setworldcoordinates
@@ -1323,6 +1389,9 @@ class PortableIDE(tk.Tk):
         turtle._pen = None
         turtle.Screen = lambda: self.turtle_screen
         turtle.getscreen = lambda: self.turtle_screen
+
+        turtle._getscreen = lambda: self.turtle_screen
+        turtle._getcanvas = lambda: self.turtle_canvas
 
         for name in ('bye', 'exitonclick', 'done', 'mainloop'):
             setattr(turtle, name, lambda *args, **kwargs: None)
