@@ -338,6 +338,7 @@ class PortableIDE(tk.Tk):
 
         self.process: subprocess.Popen[str] | None = None
         self.output_queue: queue.Queue[tuple[str, str | None]] = queue.Queue()
+        self.input_queue: queue.Queue[str] = queue.Queue()
         self.dark_mode = tk.BooleanVar(value=False)
         self.save_on_run_preference: bool | None = None
         self.turtle_screen = None
@@ -889,6 +890,10 @@ class PortableIDE(tk.Tk):
                 self.process.stdin.flush()
             except Exception as exc:
                 self._append_output(f'ОШИБКА ВВОДА: {exc}\n', tag='status')
+        elif self.turtle_running:
+            if text.strip():
+                self._append_input_echo(text)
+            self.input_queue.put(text)
         else:
             if text.strip():
                 self._append_input_echo(text)
@@ -1424,12 +1429,33 @@ class PortableIDE(tk.Tk):
     def _on_turtle_canvas_resize(self, _event=None) -> None:
         self._sync_turtle_world()
 
+    def _read_gui_input(self, prompt: str = '') -> str:
+        if prompt:
+            self._append_output(str(prompt), tag='stdout')
+        self._focus_input()
+        while True:
+            if self.turtle_abort or self._closing:
+                raise SystemExit
+            try:
+                return self.input_queue.get_nowait()
+            except queue.Empty:
+                try:
+                    self.update()
+                except tk.TclError:
+                    raise SystemExit
+                time.sleep(0.01)
+
     def _run_turtle_code(self, code: str, script_path: Path) -> None:
         self.clear_console()
         self._append_output(f'Запуск (turtle): {script_path}\n', tag='status')
         self._prepare_turtle_screen()
         self.turtle_running = True
         self.turtle_abort = False
+        while not self.input_queue.empty():
+            try:
+                self.input_queue.get_nowait()
+            except queue.Empty:
+                break
         self._update_run_controls()
 
         def _execute() -> None:
@@ -1439,6 +1465,7 @@ class PortableIDE(tk.Tk):
             }
             prev_trace = sys.gettrace()
             prev_cwd = os.getcwd()
+            prev_input = builtins.input
             script_dir = str(script_path.parent)
             path_inserted = False
             last_tick = time.perf_counter()
@@ -1461,6 +1488,8 @@ class PortableIDE(tk.Tk):
 
             sys.settrace(tracer)
             try:
+                builtins.input = self._read_gui_input
+                globals_dict['input'] = self._read_gui_input
                 if script_dir and script_dir not in sys.path:
                     sys.path.insert(0, script_dir)
                     path_inserted = True
@@ -1476,6 +1505,7 @@ class PortableIDE(tk.Tk):
                 self._append_output(traceback.format_exc(), tag='stderr')
             finally:
                 sys.settrace(prev_trace)
+                builtins.input = prev_input
                 self.turtle_running = False
                 self._update_run_controls()
                 if self.turtle_screen:
