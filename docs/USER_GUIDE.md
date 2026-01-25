@@ -3,15 +3,15 @@
 ## Быстрый старт
 ### Windows
 1. Перейди в `MSHP-IDE-Windows/`.
-2. Запусти `run_ide.bat`.
+2. Запусти `МШПаха.Оффлайн.bat`.
 
 ### macOS / Linux
 1. Перейди в `MSHP-IDE-macOS/` или `MSHP-IDE-Linux/`.
 2. В папке уже лежит portable Python **с Tkinter/Tk** для двух архитектур:
    - `python/x86_64` (Intel)
    - `python/aarch64` (Apple Silicon / ARM)
-3. Выполни один раз: `chmod +x run_ide.sh`.
-4. Запусти: `./run_ide.sh`.
+3. Выполни один раз: `chmod +x МШПаха.Оффлайн.sh`.
+4. Запусти: `./МШПаха.Оффлайн.sh`.
 
 ## Интерфейс
 - **Вкладки** — работа с модулями (файлами).

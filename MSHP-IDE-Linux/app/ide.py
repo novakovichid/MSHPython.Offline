@@ -1,7 +1,9 @@
 ﻿from __future__ import annotations
 
+import base64
 import builtins
 import io
+import json
 import keyword
 import os
 import queue
@@ -12,8 +14,9 @@ import threading
 import time
 import tkinter as tk
 import traceback
+import zlib
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 import tokenize
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -30,6 +33,7 @@ INPUT_PREFIX = '> '
 HIGHLIGHT_DELAY_MS = 200
 POLL_DELAY_MS = 50
 TURTLE_UI_PUMP_INTERVAL = 0.02
+TEMP_AUTOSAVE_DELAY_MS = 500
 
 THEMES = {
     'light': {
@@ -177,6 +181,8 @@ class EditorTab:
         self.modified = False
         self.highlight_job = None
         self.line_job = None
+        self.autosave_job = None
+        self.temp_name: str | None = None
 
         self.frame = ttk.Frame(app.notebook, style='Editor.TFrame')
         self.line_numbers = tk.Canvas(
@@ -241,6 +247,7 @@ class EditorTab:
             self.text.edit_modified(False)
             self.schedule_highlight()
             self.schedule_line_numbers()
+            self.app.on_tab_modified(self)
 
     def on_key_release(self, _event=None) -> None:
         self.schedule_highlight()
@@ -333,8 +340,10 @@ class EditorTab:
 class PortableIDE(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title('Портативная Python IDE 🐍')
+        self.title('МШПаха.Оффлайн')
         self.geometry('1100x700')
+        self._icon_image = None
+        self._set_app_icon()
 
         self.process: subprocess.Popen[str] | None = None
         self.output_queue: queue.Queue[tuple[str, str | None]] = queue.Queue()
@@ -345,6 +354,10 @@ class PortableIDE(tk.Tk):
         self.turtle_visible = False
         self.turtle_running = False
         self.turtle_abort = False
+        self.inline_running = False
+        self.step_mode = False
+        self.step_abort = False
+        self.step_event = threading.Event()
         self._turtle_custom_coords = False
         self._turtle_setworld = None
         self._turtle_initialized = False
@@ -353,6 +366,11 @@ class PortableIDE(tk.Tk):
         self._module_counter = 0
         self.save_before_run_var = tk.StringVar(value='ask')
         self.main_tab: EditorTab | None = None
+        self.temp_session_dir = RUNTIME_DIR / 'session'
+        self.temp_assets: set[str] = set()
+        self.temp_mode_label: ttk.Label | None = None
+        self.temp_import_button: ttk.Button | None = None
+        self.step_next_button: ttk.Button | None = None
 
         self.theme = THEMES['dark' if self.dark_mode.get() else 'light']
 
@@ -363,6 +381,16 @@ class PortableIDE(tk.Tk):
 
         self.new_tab()
         self.after(100, self._focus_editor)
+
+    def _set_app_icon(self) -> None:
+        icon_path = ROOT_DIR / 'app' / 'assets' / 'logo.png'
+        if not icon_path.exists():
+            return
+        try:
+            self._icon_image = tk.PhotoImage(file=str(icon_path))
+            self.iconphoto(True, self._icon_image)
+        except Exception:
+            self._icon_image = None
 
     def _apply_style(self) -> None:
         style = ttk.Style(self)
@@ -480,12 +508,29 @@ class PortableIDE(tk.Tk):
         ttk.Button(file_toolbar, text='💾 Сохранить', command=self.save_file, style='Toolbar.TButton').pack(
             side='left', padx=4, pady=6
         )
+        ttk.Button(file_toolbar, text='💾 Сохранить все', command=self.save_all, style='Toolbar.TButton').pack(
+            side='left', padx=4, pady=6
+        )
         ttk.Button(file_toolbar, text='🗜️ Архив', command=self.save_archive, style='Toolbar.TButton').pack(
             side='left', padx=4, pady=6
         )
+        ttk.Button(
+            file_toolbar,
+            text='✏️ Переименовать',
+            command=self.rename_current_tab,
+            style='Toolbar.TButton',
+        ).pack(side='left', padx=4, pady=6)
         ttk.Button(file_toolbar, text='❌ Закрыть', command=self.close_current_tab, style='Toolbar.TButton').pack(
             side='left', padx=4, pady=6
         )
+        self.temp_import_button = ttk.Button(
+            file_toolbar,
+            text='🖼 Импорт картинок',
+            command=self.import_temp_images,
+            style='Toolbar.TButton',
+        )
+        self.temp_mode_label = ttk.Label(file_toolbar, text='Режим: Обычный', font=('Consolas', 10, 'bold'))
+        self.temp_mode_label.pack(side='right', padx=8)
 
         run_toolbar = ttk.Frame(self, style='Runbar.TFrame')
         run_toolbar.pack(fill='x')
@@ -497,6 +542,12 @@ class PortableIDE(tk.Tk):
             style='Run.TButton',
         )
         self.run_button.pack(side='left', padx=4, pady=6)
+        ttk.Button(
+            run_toolbar,
+            text='⏭ Построчно',
+            command=self.run_current_step,
+            style='Run.TButton',
+        ).pack(side='left', padx=4, pady=6)
         self.stop_button = ttk.Button(
             run_toolbar,
             text='⏹ Остановить',
@@ -504,6 +555,12 @@ class PortableIDE(tk.Tk):
             style='Stop.TButton',
         )
         self.stop_button.pack(side='left', padx=4, pady=6)
+        self.step_next_button = ttk.Button(
+            run_toolbar,
+            text='➡ Далее',
+            command=self.step_next,
+            style='Toolbar.TButton',
+        )
 
         ttk.Checkbutton(
             run_toolbar,
@@ -563,6 +620,8 @@ class PortableIDE(tk.Tk):
         )
         self.console.bind('<Control-c>', self._console_copy)
         self.console.bind('<Control-C>', self._console_copy)
+        self.console.bind('<Button-1>', lambda _e: self.console.focus_set())
+        self.console.configure(takefocus=1)
         self.console.pack(fill='both', expand=True, side='left')
 
         console_scroll = ttk.Scrollbar(console_frame, orient='vertical', command=self.console.yview)
@@ -573,6 +632,7 @@ class PortableIDE(tk.Tk):
 
         self.tabs_by_frame: dict[str, EditorTab] = {}
         self._apply_theme()
+        self._update_temp_mode_ui()
         self._update_input_state()
         self._update_run_controls()
 
@@ -584,18 +644,25 @@ class PortableIDE(tk.Tk):
         self.file_menu.add_command(label='📂 Открыть…', command=self.open_file)
         self.file_menu.add_command(label='💾 Сохранить', command=self.save_file)
         self.file_menu.add_command(label='💾 Сохранить как…', command=self.save_file_as)
+        self.file_menu.add_command(label='💾 Сохранить все', command=self.save_all)
+        self.file_menu.add_command(label='✏️ Переименовать модуль', command=self.rename_current_tab)
         self.file_menu.add_separator()
         self.file_menu.add_command(label='❌ Закрыть вкладку', command=self.close_current_tab)
+        self.file_menu.add_command(label='🔄 Перезапустить приложение', command=self.restart_app)
         self.file_menu.add_command(label='🚪 Выход', command=self.on_exit)
 
         self.run_menu = tk.Menu(self.menubar, tearoff=0)
         self.run_menu.add_command(label='▶️ Запустить main.py (F5)', command=self.run_current)
+        self.run_menu.add_command(label='⏭ Построчно', command=self.run_current_step)
         self.run_menu.add_command(label='⏹ Остановить (Shift+F5)', command=self.stop_process)
         self.run_menu.add_separator()
         self.run_menu.add_command(label='🧹 Очистить консоль', command=self.clear_console)
 
         self.tools_menu = tk.Menu(self.menubar, tearoff=0)
         self.tools_menu.add_command(label='↦ Сделать отступ', command=self.indent_selection)
+        self.tools_menu.add_separator()
+        self.tools_menu.add_command(label='🔐 Экспорт проекта в хэш', command=self.export_project_hash)
+        self.tools_menu.add_command(label='🔐 Импорт проекта из хэша', command=self.import_project_hash)
 
         self.menubar.add_cascade(label='Файл', menu=self.file_menu)
         self.menubar.add_cascade(label='Запуск', menu=self.run_menu)
@@ -608,9 +675,14 @@ class PortableIDE(tk.Tk):
         self.bind('<Control-n>', lambda _e: self.new_tab())
         self.bind('<Control-o>', lambda _e: self.open_file())
         self.bind('<Control-s>', lambda _e: self.save_file())
+        self.bind('<Control-Shift-s>', lambda _e: self.save_all())
+        self.bind('<Control-Shift-S>', lambda _e: self.save_all())
         self.bind('<Control-w>', lambda _e: self.close_current_tab())
         self.bind('<F5>', lambda _e: self.run_current())
         self.bind('<Shift-F5>', lambda _e: self.stop_process())
+        self.bind('<Control-Tab>', lambda _e: self._cycle_tab(1))
+        self.bind('<Control-Shift-Tab>', lambda _e: self._cycle_tab(-1))
+        self.bind('<Control-ISO_Left_Tab>', lambda _e: self._cycle_tab(-1))
         self.protocol('WM_DELETE_WINDOW', self.on_exit)
         self.bind_all('<Control-n>', lambda _e: self.new_tab(), add=True)
         self.bind_all('<Control-N>', lambda _e: self.new_tab(), add=True)
@@ -618,6 +690,8 @@ class PortableIDE(tk.Tk):
         self.bind_all('<Control-O>', lambda _e: self.open_file(), add=True)
         self.bind_all('<Control-s>', lambda _e: self.save_file(), add=True)
         self.bind_all('<Control-S>', lambda _e: self.save_file(), add=True)
+        self.bind_all('<Control-Shift-s>', lambda _e: self.save_all(), add=True)
+        self.bind_all('<Control-Shift-S>', lambda _e: self.save_all(), add=True)
         self.bind_all('<Control-w>', lambda _e: self.close_current_tab(), add=True)
         self.bind_all('<Control-W>', lambda _e: self.close_current_tab(), add=True)
         self.bind_all('<Control-a>', self._global_select_all, add=True)
@@ -632,6 +706,9 @@ class PortableIDE(tk.Tk):
         self.bind_all('<Control-Z>', self._global_undo, add=True)
         self.bind_all('<Control-y>', self._global_redo, add=True)
         self.bind_all('<Control-Y>', self._global_redo, add=True)
+        self.bind_all('<Control-Tab>', lambda _e: self._cycle_tab(1), add=True)
+        self.bind_all('<Control-Shift-Tab>', lambda _e: self._cycle_tab(-1), add=True)
+        self.bind_all('<Control-ISO_Left_Tab>', lambda _e: self._cycle_tab(-1), add=True)
 
     def _open_settings(self) -> None:
         if hasattr(self, 'settings_window') and self.settings_window.winfo_exists():
@@ -692,9 +769,101 @@ class PortableIDE(tk.Tk):
             self.save_on_run_preference = True
         elif mode == 'never':
             self.save_on_run_preference = False
+        self._update_temp_mode_ui()
+
+    def _temporary_mode_active(self) -> bool:
+        return self.save_before_run_var.get() == 'never'
+
+    def _update_temp_mode_ui(self) -> None:
+        active = self._temporary_mode_active()
+        if self.temp_mode_label:
+            status = 'Временные файлы' if active else 'Обычный режим'
+            self.temp_mode_label.configure(text=f'Режим: {status}')
+        if self.temp_import_button:
+            if active:
+                if not self.temp_import_button.winfo_ismapped():
+                    self.temp_import_button.pack(side='left', padx=4, pady=6)
+            else:
+                if self.temp_import_button.winfo_ismapped():
+                    self.temp_import_button.pack_forget()
+        if active:
+            self._ensure_temp_session_dir()
+            self._autosave_all_tabs()
+
+    def on_tab_modified(self, tab: EditorTab) -> None:
+        if self._temporary_mode_active():
+            self._schedule_temp_autosave(tab)
+
+    def _ensure_temp_session_dir(self) -> None:
+        self.temp_session_dir.mkdir(parents=True, exist_ok=True)
+
+    def _temp_name_for_tab(self, tab: EditorTab) -> str:
+        if tab.temp_name:
+            return tab.temp_name
+        base = self._runtime_name_for_tab(tab)
+        if not base.lower().endswith('.py'):
+            base = f'{base}.py'
+        used = {t.temp_name for t in self.tabs_by_frame.values() if t.temp_name}
+        candidate = base
+        index = 2
+        while candidate in used:
+            stem, suffix = os.path.splitext(base)
+            candidate = f'{stem}_{index}{suffix}'
+            index += 1
+        tab.temp_name = candidate
+        return candidate
+
+    def _temp_path_for_tab(self, tab: EditorTab) -> Path:
+        self._ensure_temp_session_dir()
+        return self.temp_session_dir / self._temp_name_for_tab(tab)
+
+    def _schedule_temp_autosave(self, tab: EditorTab) -> None:
+        if tab.autosave_job is not None:
+            try:
+                tab.text.after_cancel(tab.autosave_job)
+            except Exception:
+                pass
+        tab.autosave_job = tab.text.after(TEMP_AUTOSAVE_DELAY_MS, lambda: self._autosave_temp_tab(tab))
+
+    def _autosave_temp_tab(self, tab: EditorTab) -> None:
+        if not self._temporary_mode_active():
+            return
+        try:
+            target = self._temp_path_for_tab(tab)
+            target.write_text(tab.get_content(), encoding='utf-8')
+        except Exception:
+            pass
+
+    def _autosave_all_tabs(self) -> None:
+        if not self._temporary_mode_active():
+            return
+        for tab in self.tabs_by_frame.values():
+            self._autosave_temp_tab(tab)
+
+    def _has_temp_files(self) -> bool:
+        if not self._temporary_mode_active():
+            return False
+        if self.temp_assets:
+            return True
+        for tab in self.tabs_by_frame.values():
+            if tab.path is None:
+                return True
+        return self.temp_session_dir.exists()
+
+    def _clear_temp_session(self) -> None:
+        if self.temp_session_dir.exists():
+            shutil.rmtree(self.temp_session_dir, ignore_errors=True)
+        self.temp_assets.clear()
+        for tab in self.tabs_by_frame.values():
+            tab.temp_name = None
+
+    def _temp_assets_paths(self) -> list[Path]:
+        if not self.temp_assets:
+            return []
+        return [self.temp_session_dir / name for name in sorted(self.temp_assets)]
 
     def _is_running(self) -> bool:
-        return self.process is not None or self.turtle_running
+        return self.process is not None or self.turtle_running or self.inline_running
 
     def _update_run_controls(self) -> None:
         running = self._is_running()
@@ -802,6 +971,120 @@ class PortableIDE(tk.Tk):
         if not tab:
             return
         self._indent_selection(tab.text)
+
+    def export_project_hash(self) -> None:
+        payload = self._serialize_project()
+        if not payload:
+            messagebox.showinfo('Экспорт', 'Нет открытых модулей для экспорта.')
+            return
+        dialog = tk.Toplevel(self)
+        dialog.title('Экспорт проекта')
+        dialog.configure(background=self.theme['app_bg'])
+        dialog.geometry('700x300')
+
+        frame = ttk.Frame(dialog, padding=12)
+        frame.pack(fill='both', expand=True)
+        ttk.Label(frame, text='Хэш проекта (скопируйте и сохраните):').pack(anchor='w')
+        text = tk.Text(frame, height=8, wrap='word', font=CONSOLE_FONT)
+        text.pack(fill='both', expand=True, pady=(6, 8))
+        text.insert('1.0', payload)
+        text.focus_set()
+
+        def _copy_hash() -> None:
+            self.clipboard_clear()
+            self.clipboard_append(payload)
+
+        btns = ttk.Frame(frame)
+        btns.pack(anchor='e')
+        ttk.Button(btns, text='Скопировать', command=_copy_hash).pack(side='right', padx=4)
+        ttk.Button(btns, text='Закрыть', command=dialog.destroy).pack(side='right')
+
+    def import_project_hash(self) -> None:
+        dialog = tk.Toplevel(self)
+        dialog.title('Импорт проекта')
+        dialog.configure(background=self.theme['app_bg'])
+        dialog.geometry('700x320')
+
+        frame = ttk.Frame(dialog, padding=12)
+        frame.pack(fill='both', expand=True)
+        ttk.Label(frame, text='Вставьте хэш проекта:').pack(anchor='w')
+        text = tk.Text(frame, height=8, wrap='word', font=CONSOLE_FONT)
+        text.pack(fill='both', expand=True, pady=(6, 8))
+        text.focus_set()
+
+        def _do_import() -> None:
+            raw = text.get('1.0', 'end-1c')
+            payload = ''.join(raw.split())
+            if not payload:
+                return
+            if not self._load_project_from_hash(payload):
+                return
+            dialog.destroy()
+
+        btns = ttk.Frame(frame)
+        btns.pack(anchor='e')
+        ttk.Button(btns, text='Импортировать', command=_do_import).pack(side='right', padx=4)
+        ttk.Button(btns, text='Отмена', command=dialog.destroy).pack(side='right')
+
+    def _serialize_project(self) -> str:
+        if not self.tabs_by_frame:
+            return ''
+        files: list[dict[str, str]] = []
+        for tab in self.tabs_by_frame.values():
+            name = self._runtime_name_for_tab(tab)
+            files.append({'name': name, 'content': tab.get_content()})
+        payload = {'version': 1, 'files': files}
+        raw = json.dumps(payload, ensure_ascii=False).encode('utf-8')
+        packed = zlib.compress(raw, level=9)
+        return base64.b85encode(packed).decode('ascii')
+
+    def _load_project_from_hash(self, token: str) -> bool:
+        try:
+            raw = base64.b85decode(token.encode('ascii'))
+            payload = json.loads(zlib.decompress(raw).decode('utf-8'))
+        except Exception:
+            messagebox.showerror('Импорт', 'Не удалось прочитать хэш проекта.')
+            return False
+        files = payload.get('files', [])
+        if not files:
+            messagebox.showerror('Импорт', 'В хэше нет данных проекта.')
+            return False
+
+        for tab in list(self.tabs_by_frame.values()):
+            if not self._confirm_discard(tab):
+                return False
+
+        for tab in list(self.tabs_by_frame.values()):
+            self.notebook.forget(tab.frame)
+        self.tabs_by_frame.clear()
+        self.main_tab = None
+        self._main_created = False
+
+        main_entry = None
+        other_entries = []
+        for entry in files:
+            name = str(entry.get('name', '')).strip()
+            if name.lower() == 'main.py' and main_entry is None:
+                main_entry = entry
+            else:
+                other_entries.append(entry)
+
+        main_tab = self._ensure_main_tab()
+        if main_entry is not None:
+            main_tab.set_content(str(main_entry.get('content', '')))
+        else:
+            main_tab.set_content('')
+
+        for entry in other_entries:
+            name = str(entry.get('name', '')).strip() or self._next_virtual_name()
+            tab = EditorTab(self)
+            tab.virtual_name = name
+            tab.set_content(str(entry.get('content', '')))
+            self.notebook.add(tab.frame, text=tab.virtual_name)
+            self.tabs_by_frame[str(tab.frame)] = tab
+
+        self.notebook.select(main_tab.frame)
+        return True
 
     def _indent_or_tab(self, widget: tk.Text) -> str:
         if widget.tag_ranges('sel'):
@@ -1023,6 +1306,69 @@ class PortableIDE(tk.Tk):
         tab.path = Path(path)
         return self._write_file(tab.path, tab)
 
+    def save_all(self) -> bool:
+        if not self.tabs_by_frame:
+            return False
+        tabs = list(self.tabs_by_frame.values())
+        unsaved = [tab for tab in tabs if tab.path is None]
+        target_dir: Path | None = None
+        if unsaved or (self._temporary_mode_active() and self.temp_assets):
+            selected = filedialog.askdirectory(parent=self, title='Папка для сохранения модулей')
+            if not selected:
+                return False
+            target_dir = Path(selected)
+        for tab in tabs:
+            if tab.path and tab.modified:
+                if not self._write_file(tab.path, tab):
+                    return False
+        if unsaved and target_dir:
+            used: set[str] = set()
+
+            def unique_name(base: str) -> str:
+                stem, suffix = os.path.splitext(base)
+                if not suffix:
+                    suffix = '.py'
+                candidate = f'{stem}{suffix}'
+                index = 2
+                while candidate in used or (target_dir / candidate).exists():
+                    candidate = f'{stem}_{index}{suffix}'
+                    index += 1
+                used.add(candidate)
+                return candidate
+
+            for tab in unsaved:
+                name = unique_name(self._runtime_name_for_tab(tab))
+                path = target_dir / name
+                tab.path = path
+                if not self._write_file(path, tab):
+                    return False
+                if tab.temp_name:
+                    temp_path = self.temp_session_dir / tab.temp_name
+                    if temp_path.exists():
+                        try:
+                            temp_path.unlink()
+                        except Exception:
+                            pass
+                    tab.temp_name = None
+        if self.temp_assets and target_dir:
+            used_names: set[str] = set()
+            for asset in self._temp_assets_paths():
+                if not asset.exists():
+                    continue
+                dest_name = asset.name
+                stem, suffix = os.path.splitext(dest_name)
+                index = 2
+                while dest_name in used_names or (target_dir / dest_name).exists():
+                    dest_name = f'{stem}_{index}{suffix}'
+                    index += 1
+                used_names.add(dest_name)
+                try:
+                    shutil.copy2(asset, target_dir / dest_name)
+                except Exception:
+                    pass
+            self.temp_assets.clear()
+        return True
+
     def save_archive(self) -> None:
         if not self.tabs_by_frame:
             messagebox.showinfo('Архив', 'Нет открытых модулей для архивации.')
@@ -1059,6 +1405,13 @@ class PortableIDE(tk.Tk):
             name = unique_name(self._runtime_name_for_tab(tab))
             dest = staging / name
             dest.write_text(tab.get_content(), encoding='utf-8')
+        for asset in self._temp_assets_paths():
+            if not asset.exists():
+                continue
+            try:
+                shutil.copy2(asset, staging / unique_name(asset.name))
+            except Exception:
+                pass
 
         try:
             if os.name == 'nt':
@@ -1087,6 +1440,86 @@ class PortableIDE(tk.Tk):
             shutil.rmtree(staging, ignore_errors=True)
 
         messagebox.showinfo('Архив', f'Архив сохранён: {target}')
+
+    def import_temp_images(self) -> None:
+        if not self._temporary_mode_active():
+            messagebox.showinfo('Импорт картинок', 'Импорт доступен только в режиме временных файлов.')
+            return
+        paths = filedialog.askopenfilenames(
+            parent=self,
+            title='Импортировать картинки',
+            filetypes=[
+                ('Изображения', '*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp'),
+                ('Все файлы', '*.*'),
+            ],
+        )
+        if not paths:
+            return
+        self._ensure_temp_session_dir()
+
+        def unique_name(base: str) -> str:
+            stem, suffix = os.path.splitext(base)
+            candidate = f'{stem}{suffix}'
+            index = 2
+            while candidate in self.temp_assets or (self.temp_session_dir / candidate).exists():
+                candidate = f'{stem}_{index}{suffix}'
+                index += 1
+            return candidate
+
+        added = 0
+        for path in paths:
+            try:
+                source = Path(path)
+                dest_name = unique_name(source.name)
+                shutil.copy2(source, self.temp_session_dir / dest_name)
+                self.temp_assets.add(dest_name)
+                added += 1
+            except Exception:
+                continue
+        if added:
+            messagebox.showinfo('Импорт картинок', f'Импортировано: {added}')
+
+    def rename_current_tab(self) -> None:
+        tab = self.get_current_tab()
+        if not tab:
+            return
+        if tab is self.main_tab:
+            messagebox.showinfo('Main.py', 'Нельзя переименовать main.py.')
+            return
+        current = tab.path.name if tab.path else (tab.virtual_name or '')
+        new_name = simpledialog.askstring('Переименовать модуль', 'Новое имя модуля:', initialvalue=current)
+        if not new_name:
+            return
+        new_name = new_name.strip()
+        if not new_name:
+            return
+        if not os.path.splitext(new_name)[1]:
+            new_name += '.py'
+        if tab.path:
+            new_path = tab.path.with_name(new_name)
+            if new_path.exists():
+                messagebox.showerror('Переименование', 'Файл с таким именем уже существует.')
+                return
+            try:
+                tab.path.rename(new_path)
+            except Exception as exc:
+                messagebox.showerror('Переименование', str(exc))
+                return
+            tab.path = new_path
+            tab.virtual_name = None
+        else:
+            old_temp = None
+            if tab.temp_name:
+                old_temp = self.temp_session_dir / tab.temp_name
+            tab.virtual_name = new_name
+            tab.temp_name = None
+            if old_temp and old_temp.exists() and self._temporary_mode_active():
+                new_temp = self._temp_path_for_tab(tab)
+                try:
+                    old_temp.rename(new_temp)
+                except Exception:
+                    pass
+        self.update_tab_title(tab)
 
     def _write_file(self, path: Path, tab: EditorTab) -> bool:
         try:
@@ -1168,10 +1601,27 @@ class PortableIDE(tk.Tk):
         if tab:
             tab.text.focus_set()
 
+    def _cycle_tab(self, direction: int) -> str:
+        tabs = self.notebook.tabs()
+        if not tabs:
+            return 'break'
+        current = self.notebook.select()
+        try:
+            index = tabs.index(current)
+        except ValueError:
+            index = 0
+        next_index = (index + direction) % len(tabs)
+        self.notebook.select(tabs[next_index])
+        self._focus_editor()
+        return 'break'
+
     def _confirm_discard(self, tab: EditorTab) -> bool:
         if not tab.modified:
             return True
-        response = messagebox.askyesnocancel('Несохранённые изменения', 'Сохранить изменения перед закрытием?')
+        message = 'Сохранить изменения перед закрытием?'
+        if self._closing and self._has_temp_files():
+            message += '\n\nВременные файлы будут потеряны после закрытия программы.'
+        response = messagebox.askyesnocancel('Несохранённые изменения', message)
         if response is None:
             return False
         if response:
@@ -1192,30 +1642,53 @@ class PortableIDE(tk.Tk):
     def on_exit(self) -> None:
         self._closing = True
         self.turtle_abort = True
+        self.step_abort = True
         for tab in list(self.tabs_by_frame.values()):
             if not self._confirm_discard(tab):
                 return
         self.stop_process()
+        self._clear_temp_session()
         self.destroy()
 
-    def run_current(self) -> None:
+    def restart_app(self) -> None:
+        self._closing = True
+        self.turtle_abort = True
+        self.step_abort = True
+        for tab in list(self.tabs_by_frame.values()):
+            if not self._confirm_discard(tab):
+                self._closing = False
+                return
+        self.stop_process()
+        self._clear_temp_session()
+        executable = sys.executable
+        args = [executable] + sys.argv
+        self.destroy()
+        os.execv(executable, args)
+
+    def run_current(self, step_mode: bool = False) -> None:
         tab = self.main_tab or self.get_current_tab()
         if tab is None or tab is not self.main_tab:
             tab = self._ensure_main_tab()
         if not tab:
             return
-        if self.process:
+        if self._is_running():
             if not messagebox.askyesno('Процесс уже запущен', 'Остановить текущий процесс и запустить снова?'):
                 return
             self.stop_process()
 
-        script_path = self._prepare_run_path(tab)
-        if not script_path:
+        run_context = self._prepare_run_context(tab)
+        if not run_context:
             return
+        script_path, runtime_dir = run_context
+
+        self.step_mode = bool(step_mode)
+        self.step_abort = False
+        self.step_event.clear()
+        self._show_step_controls(self.step_mode)
 
         code = tab.get_content()
         if self._needs_turtle(tab, script_path):
-            self._run_turtle_code(code, script_path)
+            self._run_turtle_code(code, script_path, runtime_dir, self.step_mode)
             return
 
         python_exe = get_python_executable()
@@ -1228,13 +1701,37 @@ class PortableIDE(tk.Tk):
             return
 
         self.clear_console()
-        self._append_output(f'Запуск: {script_path}\n', tag='status')
-        self._run_in_console(python_exe, script_path)
+        if self.step_mode:
+            self._append_output(f'Построчный запуск: {script_path}\n', tag='status')
+            self._run_step_code(code, script_path, runtime_dir)
+        else:
+            self._append_output(f'Запуск: {script_path}\n', tag='status')
+            self._run_in_console(python_exe, script_path, runtime_dir)
         self._focus_input()
         self._update_run_controls()
 
-    def _run_in_console(self, python_exe: str, script_path: Path) -> None:
+    def run_current_step(self) -> None:
+        self.run_current(step_mode=True)
+
+    def step_next(self) -> None:
+        self.step_event.set()
+
+    def _show_step_controls(self, show: bool) -> None:
+        if not self.step_next_button:
+            return
+        if show:
+            if not self.step_next_button.winfo_ismapped():
+                self.step_next_button.pack(side='left', padx=4, pady=6)
+        else:
+            if self.step_next_button.winfo_ismapped():
+                self.step_next_button.pack_forget()
+
+    def _run_in_console(self, python_exe: str, script_path: Path, runtime_dir: Path | None) -> None:
         try:
+            env = os.environ.copy()
+            if runtime_dir:
+                current = env.get('PYTHONPATH', '')
+                env['PYTHONPATH'] = str(runtime_dir) + (os.pathsep + current if current else '')
             self.process = subprocess.Popen(
                 [python_exe, '-u', str(script_path)],
                 stdin=subprocess.PIPE,
@@ -1242,6 +1739,7 @@ class PortableIDE(tk.Tk):
                 stderr=subprocess.PIPE,
                 text=True,
                 cwd=str(script_path.parent),
+                env=env,
             )
         except Exception as exc:
             self._append_output(f'Ошибка запуска: {exc}\n', tag='status')
@@ -1387,6 +1885,8 @@ class PortableIDE(tk.Tk):
             self.turtle_screen.listen()
         except Exception:
             pass
+        self._patch_turtle_keys()
+        self._patch_turtle_update()
 
         turtle.Turtle._screen = self.turtle_screen
         turtle.Turtle._pen = None
@@ -1403,6 +1903,51 @@ class PortableIDE(tk.Tk):
         self.turtle_screen.bye = lambda *args, **kwargs: None
         self.turtle_screen.mainloop = lambda *args, **kwargs: None
         self._wrap_turtle_setworld()
+
+    def _patch_turtle_keys(self) -> None:
+        if not self.turtle_screen:
+            return
+        key_map = {
+            'up': 'Up',
+            'down': 'Down',
+            'left': 'Left',
+            'right': 'Right',
+            'esc': 'Escape',
+            'escape': 'Escape',
+            'space': 'space',
+        }
+
+        def normalize(key: str | None) -> str | None:
+            if not key or not isinstance(key, str):
+                return key
+            return key_map.get(key, key)
+
+        for name in ('onkey', 'onkeypress', 'onkeyrelease'):
+            original = getattr(self.turtle_screen, name, None)
+            if not callable(original):
+                continue
+
+            def make_wrapper(func):
+                def wrapped(fun, key=None):
+                    return func(fun, normalize(key))
+
+                return wrapped
+
+            setattr(self.turtle_screen, name, make_wrapper(original))
+
+    def _patch_turtle_update(self) -> None:
+        import turtle
+
+        if hasattr(turtle.Turtle, 'update'):
+            return
+
+        def _update(self_turtle):
+            try:
+                self_turtle.getscreen().update()
+            except Exception:
+                pass
+
+        turtle.Turtle.update = _update
 
     def _wrap_turtle_setworld(self) -> None:
         if not self.turtle_screen or not self._turtle_setworld:
@@ -1422,6 +1967,9 @@ class PortableIDE(tk.Tk):
         height = self.turtle_canvas.winfo_height()
         if width > 2 and height > 2 and self._turtle_setworld:
             try:
+                if self.turtle_screen:
+                    self.turtle_screen.canvwidth = width
+                    self.turtle_screen.canvheight = height
                 self._turtle_setworld(-width / 2, -height / 2, width / 2, height / 2)
             except Exception:
                 pass
@@ -1434,7 +1982,7 @@ class PortableIDE(tk.Tk):
             self._append_output(str(prompt), tag='stdout')
         self._focus_input()
         while True:
-            if self.turtle_abort or self._closing:
+            if self.turtle_abort or self.step_abort or self._closing:
                 raise SystemExit
             try:
                 return self.input_queue.get_nowait()
@@ -1445,7 +1993,13 @@ class PortableIDE(tk.Tk):
                     raise SystemExit
                 time.sleep(0.01)
 
-    def _run_turtle_code(self, code: str, script_path: Path) -> None:
+    def _run_turtle_code(
+        self,
+        code: str,
+        script_path: Path,
+        runtime_dir: Path | None,
+        step_mode: bool = False,
+    ) -> None:
         self.clear_console()
         self._append_output(f'Запуск (turtle): {script_path}\n', tag='status')
         self._prepare_turtle_screen()
@@ -1468,6 +2022,7 @@ class PortableIDE(tk.Tk):
             prev_input = builtins.input
             script_dir = str(script_path.parent)
             path_inserted = False
+            runtime_inserted = False
             last_tick = time.perf_counter()
 
             def tracer(_frame, event, _arg):
@@ -1475,23 +2030,32 @@ class PortableIDE(tk.Tk):
                 if self.turtle_abort or self._closing:
                     raise SystemExit
                 if event == 'line':
-                    now = time.perf_counter()
-                    if now - last_tick >= TURTLE_UI_PUMP_INTERVAL:
-                        last_tick = now
-                        try:
-                            if self.turtle_screen:
-                                self.turtle_screen.update()
-                            self.update()
-                        except tk.TclError:
-                            return None
+                    if step_mode:
+                        self._wait_for_step()
+                    else:
+                        now = time.perf_counter()
+                        if now - last_tick >= TURTLE_UI_PUMP_INTERVAL:
+                            last_tick = now
+                            try:
+                                if self.turtle_screen:
+                                    self.turtle_screen.update()
+                                self.update()
+                            except tk.TclError:
+                                return None
                 return tracer
 
             sys.settrace(tracer)
             try:
                 builtins.input = self._read_gui_input
                 globals_dict['input'] = self._read_gui_input
+                if runtime_dir:
+                    runtime_str = str(runtime_dir)
+                    if runtime_str not in sys.path:
+                        sys.path.insert(0, runtime_str)
+                        runtime_inserted = True
                 if script_dir and script_dir not in sys.path:
-                    sys.path.insert(0, script_dir)
+                    insert_at = 1 if runtime_inserted else 0
+                    sys.path.insert(insert_at, script_dir)
                     path_inserted = True
                 try:
                     os.chdir(script_dir)
@@ -1507,6 +2071,8 @@ class PortableIDE(tk.Tk):
                 sys.settrace(prev_trace)
                 builtins.input = prev_input
                 self.turtle_running = False
+                self.step_mode = False
+                self._show_step_controls(False)
                 self._update_run_controls()
                 if self.turtle_screen:
                     try:
@@ -1518,6 +2084,11 @@ class PortableIDE(tk.Tk):
                         sys.path.remove(script_dir)
                     except ValueError:
                         pass
+                if runtime_inserted:
+                    try:
+                        sys.path.remove(str(runtime_dir))
+                    except ValueError:
+                        pass
                 try:
                     os.chdir(prev_cwd)
                 except OSError:
@@ -1526,32 +2097,174 @@ class PortableIDE(tk.Tk):
 
         self.after(10, _execute)
 
-    def _prepare_run_path(self, tab: EditorTab) -> Path | None:
-        if tab.modified:
-            mode = self.save_before_run_var.get()
-            if mode == 'always':
-                self.save_on_run_preference = True
-            elif mode == 'never':
-                self.save_on_run_preference = False
+    def _wait_for_step(self) -> None:
+        if not self.step_mode:
+            return
+        self.step_event.clear()
+        while not self.step_event.is_set():
+            if self.step_abort or self.turtle_abort or self._closing:
+                raise SystemExit
+            try:
+                self.update()
+            except tk.TclError:
+                raise SystemExit
+            time.sleep(0.01)
 
-            if self.save_on_run_preference is None:
+    def _run_step_code(self, code: str, script_path: Path, runtime_dir: Path | None) -> None:
+        self.inline_running = True
+        self.step_abort = False
+        self._update_run_controls()
+
+        class _ConsoleWriter:
+            def __init__(self, app: 'PortableIDE', tag: str) -> None:
+                self.app = app
+                self.tag = tag
+
+            def write(self, data: str) -> int:
+                if data:
+                    self.app._append_output(data, tag=self.tag)
+                return len(data)
+
+            def flush(self) -> None:
+                return None
+
+        def _execute() -> None:
+            globals_dict = {
+                '__name__': '__main__',
+                '__file__': str(script_path),
+            }
+            prev_trace = sys.gettrace()
+            prev_cwd = os.getcwd()
+            prev_input = builtins.input
+            prev_stdout = sys.stdout
+            prev_stderr = sys.stderr
+            script_dir = str(script_path.parent)
+            path_inserted = False
+            runtime_inserted = False
+
+            def tracer(frame, event, _arg):
+                if self.step_abort or self._closing:
+                    raise SystemExit
+                if event == 'line' and self._is_user_step_frame(frame, script_path, runtime_dir):
+                    self._wait_for_step()
+                return tracer
+
+            sys.settrace(tracer)
+            try:
+                builtins.input = self._read_gui_input
+                globals_dict['input'] = self._read_gui_input
+                sys.stdout = _ConsoleWriter(self, 'stdout')
+                sys.stderr = _ConsoleWriter(self, 'stderr')
+                if runtime_dir:
+                    runtime_str = str(runtime_dir)
+                    if runtime_str not in sys.path:
+                        sys.path.insert(0, runtime_str)
+                        runtime_inserted = True
+                if script_dir and script_dir not in sys.path:
+                    insert_at = 1 if runtime_inserted else 0
+                    sys.path.insert(insert_at, script_dir)
+                    path_inserted = True
+                try:
+                    os.chdir(script_dir)
+                except OSError:
+                    pass
+                exec(compile(code, str(script_path), 'exec'), globals_dict)
+            except SystemExit:
+                if not self._closing:
+                    self._append_output('Остановлено\n', tag='status')
+            except Exception:
+                self._append_output(traceback.format_exc(), tag='stderr')
+            finally:
+                sys.settrace(prev_trace)
+                builtins.input = prev_input
+                sys.stdout = prev_stdout
+                sys.stderr = prev_stderr
+                if path_inserted:
+                    try:
+                        sys.path.remove(script_dir)
+                    except ValueError:
+                        pass
+                if runtime_inserted:
+                    try:
+                        sys.path.remove(str(runtime_dir))
+                    except ValueError:
+                        pass
+                try:
+                    os.chdir(prev_cwd)
+                except OSError:
+                    pass
+                self.inline_running = False
+                self.step_mode = False
+                self._show_step_controls(False)
+                self._update_run_controls()
+                self._append_output('Готово.\n', tag='status')
+
+        self.after(10, _execute)
+
+    def _is_user_step_frame(self, frame, script_path: Path, runtime_dir: Path | None) -> bool:
+        filename = frame.f_code.co_filename
+        if not filename:
+            return False
+        try:
+            file_path = Path(filename).resolve()
+        except Exception:
+            return False
+        try:
+            if runtime_dir and file_path.is_relative_to(runtime_dir):
+                return True
+        except Exception:
+            if runtime_dir and str(runtime_dir) in str(file_path):
+                return True
+        try:
+            return file_path == script_path.resolve()
+        except Exception:
+            return False
+
+    def _prepare_run_context(self, tab: EditorTab) -> tuple[Path, Path | None] | None:
+        tabs = list(self.tabs_by_frame.values())
+        modified_tabs = [t for t in tabs if t.modified]
+        if modified_tabs:
+            mode = self.save_before_run_var.get()
+            if mode == 'ask':
                 response = messagebox.askyesnocancel(
                     'Несохранённые изменения',
-                    'Сохранить перед запуском? (выбор будет запомнен)',
+                    'Сохранить изменения перед запуском? (выбор будет запомнен)',
                 )
                 if response is None:
                     return None
+                mode = 'always' if response else 'never'
+                self.save_before_run_var.set(mode)
                 self.save_on_run_preference = bool(response)
-                self.save_before_run_var.set('always' if response else 'never')
+                self._update_temp_mode_ui()
+            elif mode == 'always':
+                self.save_on_run_preference = True
+            elif mode == 'never':
+                self.save_on_run_preference = False
+            if mode == 'always':
+                for t in modified_tabs:
+                    if t.path and not self._write_file(t.path, t):
+                        return None
 
-            if self.save_on_run_preference:
-                if not self.save_file():
-                    return None
+        needs_runtime = (
+            self._temporary_mode_active()
+            or any(t.path is None for t in tabs)
+            or any(t.modified for t in tabs)
+        )
+        if needs_runtime:
+            if self._temporary_mode_active():
+                primary_path = self._sync_temp_session(tab)
+                runtime_dir = self.temp_session_dir
             else:
-                return self._write_temp_script(tab)
+                primary_path, runtime_dir = self._build_runtime_snapshot(tab)
+            if self._temporary_mode_active() or tab.path is None or tab.modified:
+                return primary_path, runtime_dir
+            if tab.path is None:
+                return primary_path, runtime_dir
+            return tab.path, runtime_dir
+
         if tab.path is None:
-            return self._write_temp_script(tab)
-        return tab.path
+            return None
+        return tab.path, None
 
     def _runtime_name_for_tab(self, tab: EditorTab) -> str:
         if tab is self.main_tab:
@@ -1564,8 +2277,11 @@ class PortableIDE(tk.Tk):
             name = f'{name}.py'
         return name
 
-    def _build_runtime_files(self, primary_tab: EditorTab) -> Path:
-        RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    def _build_runtime_snapshot(self, primary_tab: EditorTab) -> tuple[Path, Path]:
+        snapshot_dir = RUNTIME_DIR / 'snapshot'
+        if snapshot_dir.exists():
+            shutil.rmtree(snapshot_dir, ignore_errors=True)
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
         used: set[str] = set()
 
         def unique_name(base: str) -> str:
@@ -1581,19 +2297,31 @@ class PortableIDE(tk.Tk):
             return candidate
 
         primary_name = unique_name(self._runtime_name_for_tab(primary_tab))
-        primary_path = RUNTIME_DIR / primary_name
+        primary_path = snapshot_dir / primary_name
         primary_path.write_text(primary_tab.get_content(), encoding='utf-8')
 
         for tab in self.tabs_by_frame.values():
             if tab is primary_tab:
                 continue
             name = unique_name(self._runtime_name_for_tab(tab))
-            (RUNTIME_DIR / name).write_text(tab.get_content(), encoding='utf-8')
+            (snapshot_dir / name).write_text(tab.get_content(), encoding='utf-8')
 
-        return primary_path
+        return primary_path, snapshot_dir
 
-    def _write_temp_script(self, tab: EditorTab) -> Path:
-        return self._build_runtime_files(tab)
+    def _sync_temp_session(self, primary_tab: EditorTab) -> Path:
+        self._ensure_temp_session_dir()
+        desired: set[str] = set()
+        for tab in self.tabs_by_frame.values():
+            name = self._temp_name_for_tab(tab)
+            desired.add(name)
+            (self.temp_session_dir / name).write_text(tab.get_content(), encoding='utf-8')
+        for candidate in self.temp_session_dir.glob('*.py'):
+            if candidate.name not in desired:
+                try:
+                    candidate.unlink()
+                except Exception:
+                    pass
+        return self.temp_session_dir / self._temp_name_for_tab(primary_tab)
 
     def _read_stream(self, stream, tag: str) -> None:
         if stream is None:
@@ -1659,6 +2387,10 @@ class PortableIDE(tk.Tk):
     def stop_process(self) -> None:
         if self.turtle_running:
             self.turtle_abort = True
+            return
+        if self.inline_running:
+            self.step_abort = True
+            self.step_event.set()
             return
         if not self.process:
             self._update_run_controls()
