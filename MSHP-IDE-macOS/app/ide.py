@@ -37,86 +37,88 @@ TEMP_AUTOSAVE_DELAY_MS = 500
 
 THEMES = {
     'light': {
-        'app_bg': '#f5f9ff',
+        'app_bg': '#f8f9fa',
         'panel_bg': '#ffffff',
-        'toolbar_bg': '#e7f0ff',
-        'accent': '#2563eb',
-        'accent_dark': '#1d4ed8',
-        'menu_bg': '#e7f0ff',
-        'menu_fg': '#0f172a',
-        'menu_active_bg': '#dbeafe',
-        'menu_active_fg': '#1d4ed8',
-        'run_bg': '#16a34a',
-        'run_bg_active': '#22c55e',
-        'stop_bg': '#dc2626',
-        'stop_bg_active': '#ef4444',
-        'stop_bg_disabled': '#f3c6c6',
-        'stop_fg_disabled': '#7f1d1d',
+        'toolbar_bg': '#e9ecef',
+        'accent': '#0d6efd',
+        'accent_dark': '#0b5ed7',
+        'menu_bg': '#f8f9fa',
+        'menu_fg': '#212529',
+        'menu_active_bg': '#e9ecef',
+        'menu_active_fg': '#0d6efd',
+        'run_bg': '#198754',
+        'run_bg_active': '#157347',
+        'stop_bg': '#dc3545',
+        'stop_bg_active': '#bb2d3b',
+        'stop_bg_disabled': '#f8d7da',
+        'stop_fg_disabled': '#842029',
         'editor_bg': '#ffffff',
-        'editor_fg': '#0f172a',
-        'console_bg': '#f8fbff',
-        'console_fg': '#0f172a',
-        'line_number_bg': '#e7f0ff',
-        'line_number_fg': '#3b82f6',
+        'editor_fg': '#212529',
+        'console_bg': '#f8f9fa',
+        'console_fg': '#212529',
+        'line_number_bg': '#f1f3f5',
+        'line_number_fg': '#adb5bd',
         'input_bg': '#ffffff',
-        'input_bg_focus': '#eff6ff',
-        'input_fg': '#0f172a',
-        'selection_bg': '#dbeafe',
-        'selection_fg': '#0f172a',
-        'status_fg': '#1e40af',
-        'stderr_fg': '#dc2626',
-        'stdin_fg': '#0ea5a4',
-        'scrollbar_bg': '#cbd5f5',
-        'scrollbar_trough': '#e7f0ff',
-        'check_bg': '#f5f9ff',
-        'check_fg': '#0f172a',
-        'syntax_comment': '#64748b',
-        'syntax_string': '#1d4ed8',
-        'syntax_number': '#0ea5e9',
-        'syntax_keyword': '#1e40af',
-        'syntax_builtin': '#0369a1',
-        'syntax_error': '#dc2626',
+        'input_bg_focus': '#f8f9fa',
+        'input_fg': '#212529',
+        'selection_bg': '#cfe2ff',
+        'selection_fg': '#212529',
+        'status_fg': '#0d6efd',
+        'stderr_fg': '#dc3545',
+        'stdin_fg': '#20c997',
+        'scrollbar_bg': '#dee2e6',
+        'scrollbar_trough': '#f8f9fa',
+        'check_bg': '#f8f9fa',
+        'check_fg': '#212529',
+        'syntax_comment': '#6c757d',
+        'syntax_string': '#d63384',
+        'syntax_number': '#0d6efd',
+        'syntax_keyword': '#6610f2',
+        'syntax_builtin': '#fd7e14',
+        'syntax_error': '#dc3545',
+        'execution_line_bg': '#fff3cd',
     },
     'dark': {
-        'app_bg': '#0b1220',
-        'panel_bg': '#0f172a',
-        'toolbar_bg': '#111c33',
-        'accent': '#60a5fa',
-        'accent_dark': '#3b82f6',
-        'menu_bg': '#111c33',
-        'menu_fg': '#e2e8f0',
-        'menu_active_bg': '#1e293b',
-        'menu_active_fg': '#f8fafc',
-        'run_bg': '#16a34a',
-        'run_bg_active': '#22c55e',
-        'stop_bg': '#ef4444',
-        'stop_bg_active': '#f87171',
-        'stop_bg_disabled': '#3b1f1f',
-        'stop_fg_disabled': '#a1a1aa',
-        'editor_bg': '#0f172a',
-        'editor_fg': '#e2e8f0',
-        'console_bg': '#0b1325',
-        'console_fg': '#e2e8f0',
-        'line_number_bg': '#111c33',
-        'line_number_fg': '#60a5fa',
-        'input_bg': '#0f172a',
-        'input_bg_focus': '#111827',
-        'input_fg': '#e2e8f0',
-        'selection_bg': '#1e293b',
-        'selection_fg': '#f8fafc',
-        'status_fg': '#93c5fd',
-        'stderr_fg': '#fca5a5',
-        'stdin_fg': '#22d3ee',
-        'scrollbar_bg': '#334155',
-        'scrollbar_trough': '#0f172a',
-        'check_bg': '#0b1220',
-        'check_fg': '#e2e8f0',
-        'syntax_comment': '#94a3b8',
-        'syntax_string': '#93c5fd',
-        'syntax_number': '#38bdf8',
-        'syntax_keyword': '#60a5fa',
-        'syntax_builtin': '#7dd3fc',
-        'syntax_error': '#f87171',
+        'app_bg': '#212529',
+        'panel_bg': '#2c3035',
+        'toolbar_bg': '#343a40',
+        'accent': '#6ea8fe',
+        'accent_dark': '#3d8bfd',
+        'menu_bg': '#343a40',
+        'menu_fg': '#dee2e6',
+        'menu_active_bg': '#495057',
+        'menu_active_fg': '#ffffff',
+        'run_bg': '#198754',
+        'run_bg_active': '#75b798',
+        'stop_bg': '#dc3545',
+        'stop_bg_active': '#ea868f',
+        'stop_bg_disabled': '#58151c',
+        'stop_fg_disabled': '#842029',
+        'editor_bg': '#2c3035',
+        'editor_fg': '#f8f9fa',
+        'console_bg': '#212529',
+        'console_fg': '#f8f9fa',
+        'line_number_bg': '#343a40',
+        'line_number_fg': '#6c757d',
+        'input_bg': '#2c3035',
+        'input_bg_focus': '#343a40',
+        'input_fg': '#f8f9fa',
+        'selection_bg': '#0d6efd',
+        'selection_fg': '#ffffff',
+        'status_fg': '#6ea8fe',
+        'stderr_fg': '#ea868f',
+        'stdin_fg': '#75b798',
+        'scrollbar_bg': '#495057',
+        'scrollbar_trough': '#343a40',
+        'check_bg': '#212529',
+        'check_fg': '#f8f9fa',
+        'syntax_comment': '#adb5bd',
+        'syntax_string': '#e685b5',
+        'syntax_number': '#6ea8fe',
+        'syntax_keyword': '#a574f5',
+        'syntax_builtin': '#fd9843',
+        'syntax_error': '#ea868f',
+        'execution_line_bg': '#004a77',
     },
 }
 
@@ -239,6 +241,7 @@ class EditorTab:
         self.text.tag_configure('keyword', foreground=theme['syntax_keyword'], font=('Consolas', 12, 'bold'))
         self.text.tag_configure('builtin', foreground=theme['syntax_builtin'])
         self.text.tag_configure('error', foreground=theme['syntax_error'])
+        self.text.tag_configure('execution_line', background=theme['execution_line_bg'])
 
     def on_modified(self, _event=None) -> None:
         if self.text.edit_modified():
@@ -370,6 +373,7 @@ class PortableIDE(tk.Tk):
         self.temp_assets: set[str] = set()
         self.temp_mode_label: ttk.Label | None = None
         self.temp_import_button: ttk.Button | None = None
+        self.temp_show_images_button: ttk.Button | None = None
         self.step_next_button: ttk.Button | None = None
 
         self.theme = THEMES['dark' if self.dark_mode.get() else 'light']
@@ -511,6 +515,7 @@ class PortableIDE(tk.Tk):
         ttk.Button(file_toolbar, text='💾 Сохранить все', command=self.save_all, style='Toolbar.TButton').pack(
             side='left', padx=4, pady=6
         )
+        ttk.Separator(file_toolbar, orient='vertical').pack(side='left', fill='y', padx=2, pady=6)
         ttk.Button(file_toolbar, text='🗜️ Архив', command=self.save_archive, style='Toolbar.TButton').pack(
             side='left', padx=4, pady=6
         )
@@ -520,13 +525,21 @@ class PortableIDE(tk.Tk):
             command=self.rename_current_tab,
             style='Toolbar.TButton',
         ).pack(side='left', padx=4, pady=6)
+        ttk.Separator(file_toolbar, orient='vertical').pack(side='left', fill='y', padx=2, pady=6)
         ttk.Button(file_toolbar, text='❌ Закрыть', command=self.close_current_tab, style='Toolbar.TButton').pack(
             side='left', padx=4, pady=6
         )
+        ttk.Separator(file_toolbar, orient='vertical').pack(side='left', fill='y', padx=2, pady=6)
         self.temp_import_button = ttk.Button(
             file_toolbar,
             text='🖼 Импорт картинок',
             command=self.import_temp_images,
+            style='Toolbar.TButton',
+        )
+        self.temp_show_images_button = ttk.Button(
+            file_toolbar,
+            text='📂 Список картинок',
+            command=self.show_temp_images_list,
             style='Toolbar.TButton',
         )
         self.temp_mode_label = ttk.Label(file_toolbar, text='Режим: Обычный', font=('Consolas', 10, 'bold'))
@@ -705,7 +718,7 @@ class PortableIDE(tk.Tk):
         self.bind_all('<Control-z>', self._global_undo, add=True)
         self.bind_all('<Control-Z>', self._global_undo, add=True)
         self.bind_all('<Control-y>', self._global_redo, add=True)
-        self.bind_all('<Control-Y>', self._global_redo, add=True)
+        self.bind_all('<Control-Y>', lambda _e: self._global_redo(), add=True)
         self.bind_all('<Control-Tab>', lambda _e: self._cycle_tab(1), add=True)
         self.bind_all('<Control-Shift-Tab>', lambda _e: self._cycle_tab(-1), add=True)
         self.bind_all('<Control-ISO_Left_Tab>', lambda _e: self._cycle_tab(-1), add=True)
@@ -783,9 +796,13 @@ class PortableIDE(tk.Tk):
             if active:
                 if not self.temp_import_button.winfo_ismapped():
                     self.temp_import_button.pack(side='left', padx=4, pady=6)
+                if not self.temp_show_images_button.winfo_ismapped():
+                    self.temp_show_images_button.pack(side='left', padx=4, pady=6)
             else:
                 if self.temp_import_button.winfo_ismapped():
                     self.temp_import_button.pack_forget()
+                if self.temp_show_images_button.winfo_ismapped():
+                    self.temp_show_images_button.pack_forget()
         if active:
             self._ensure_temp_session_dir()
             self._autosave_all_tabs()
@@ -985,7 +1002,15 @@ class PortableIDE(tk.Tk):
         frame = ttk.Frame(dialog, padding=12)
         frame.pack(fill='both', expand=True)
         ttk.Label(frame, text='Хэш проекта (скопируйте и сохраните):').pack(anchor='w')
-        text = tk.Text(frame, height=8, wrap='word', font=CONSOLE_FONT)
+        text = tk.Text(
+            frame,
+            height=8,
+            wrap='word',
+            font=CONSOLE_FONT,
+            background=self.theme['input_bg'],
+            foreground=self.theme['input_fg'],
+            insertbackground=self.theme['input_fg'],
+        )
         text.pack(fill='both', expand=True, pady=(6, 8))
         text.insert('1.0', payload)
         text.focus_set()
@@ -1008,9 +1033,18 @@ class PortableIDE(tk.Tk):
         frame = ttk.Frame(dialog, padding=12)
         frame.pack(fill='both', expand=True)
         ttk.Label(frame, text='Вставьте хэш проекта:').pack(anchor='w')
-        text = tk.Text(frame, height=8, wrap='word', font=CONSOLE_FONT)
+        text = tk.Text(
+            frame,
+            height=8,
+            wrap='word',
+            font=CONSOLE_FONT,
+            background=self.theme['input_bg'],
+            foreground=self.theme['input_fg'],
+            insertbackground=self.theme['input_fg'],
+        )
         text.pack(fill='both', expand=True, pady=(6, 8))
         text.focus_set()
+        self.bind_text_shortcuts(text)
 
         def _do_import() -> None:
             raw = text.get('1.0', 'end-1c')
@@ -1478,6 +1512,48 @@ class PortableIDE(tk.Tk):
                 continue
         if added:
             messagebox.showinfo('Импорт картинок', f'Импортировано: {added}')
+
+    def show_temp_images_list(self) -> None:
+        if not self._temporary_mode_active():
+            return
+        if not self.temp_session_dir.exists():
+            messagebox.showinfo('Список картинок', 'Нет импортированных картинок.')
+            return
+        
+        images = []
+        for ext in ('*.png', '*.jpg', '*.jpeg', '*.gif', '*.bmp', '*.webp'):
+            for p in self.temp_session_dir.glob(ext):
+                images.append(p.name)
+        
+        if not images:
+            messagebox.showinfo('Список картинок', 'Нет импортированных картинок.')
+            return
+        
+        images.sort()
+        list_str = '\n'.join(images)
+        dialog = tk.Toplevel(self)
+        dialog.title('Список картинок')
+        dialog.configure(background=self.theme['app_bg'])
+        dialog.geometry('400x500')
+        
+        frame = ttk.Frame(dialog, padding=12)
+        frame.pack(fill='both', expand=True)
+        
+        ttk.Label(frame, text='Импортированные картинки:').pack(anchor='w', pady=(0, 6))
+        
+        text = tk.Text(
+            frame,
+            wrap='word',
+            font=CONSOLE_FONT,
+            background=self.theme['input_bg'],
+            foreground=self.theme['input_fg'],
+            insertbackground=self.theme['input_fg'],
+        )
+        text.pack(fill='both', expand=True)
+        text.insert('1.0', list_str)
+        text.configure(state='disabled')
+        
+        ttk.Button(frame, text='Закрыть', command=dialog.destroy).pack(anchor='e', pady=(12, 0))
 
     def rename_current_tab(self) -> None:
         tab = self.get_current_tab()
@@ -1967,10 +2043,15 @@ class PortableIDE(tk.Tk):
         height = self.turtle_canvas.winfo_height()
         if width > 2 and height > 2 and self._turtle_setworld:
             try:
+                # Account for borders and highlightthickness to prevent 1-2px inaccuracies
+                # which can cause subtle oval distortion
+                bd = 2  # Approximate border
+                w = width - bd * 2
+                h = height - bd * 2
                 if self.turtle_screen:
-                    self.turtle_screen.canvwidth = width
-                    self.turtle_screen.canvheight = height
-                self._turtle_setworld(-width / 2, -height / 2, width / 2, height / 2)
+                    self.turtle_screen.canvwidth = w
+                    self.turtle_screen.canvheight = h
+                self._turtle_setworld(-w / 2, -h / 2, w / 2, h / 2)
             except Exception:
                 pass
 
@@ -2030,8 +2111,16 @@ class PortableIDE(tk.Tk):
                 if self.turtle_abort or self._closing:
                     raise SystemExit
                 if event == 'line':
+                    should_pause = False
                     if step_mode:
+                        # Only pause if we are in the user's script
+                        if self._is_user_step_frame(_frame, script_path, runtime_dir):
+                            should_pause = True
+                            self.highlight_execution_line(script_path, _frame.f_lineno)
+
+                    if should_pause:
                         self._wait_for_step()
+                        self.clear_execution_highlights()
                     else:
                         now = time.perf_counter()
                         if now - last_tick >= TURTLE_UI_PUMP_INTERVAL:
@@ -2040,8 +2129,8 @@ class PortableIDE(tk.Tk):
                                 if self.turtle_screen:
                                     self.turtle_screen.update()
                                 self.update()
-                            except tk.TclError:
-                                return None
+                            except Exception:
+                                pass
                 return tracer
 
             sys.settrace(tracer)
@@ -2146,7 +2235,9 @@ class PortableIDE(tk.Tk):
                 if self.step_abort or self._closing:
                     raise SystemExit
                 if event == 'line' and self._is_user_step_frame(frame, script_path, runtime_dir):
+                    self.highlight_execution_line(script_path, frame.f_lineno)
                     self._wait_for_step()
+                    self.clear_execution_highlights()
                 return tracer
 
             sys.settrace(tracer)
@@ -2201,24 +2292,88 @@ class PortableIDE(tk.Tk):
 
         self.after(10, _execute)
 
+    def highlight_execution_line(self, script_path: Path, lineno: int) -> None:
+        # Determine which tab corresponds to this script
+        target_tab = None
+        
+        # Check main tab
+        if self.main_tab:
+            # Special case for main.py running from snapshot
+            if self.main_tab.path and self.main_tab.path == script_path:
+                target_tab = self.main_tab
+            elif script_path.name == 'main.py': 
+                # Relaxed check for main.py if running from temp/snapshot
+                if not self.main_tab.path and self.main_tab.virtual_name == 'main.py':
+                    target_tab = self.main_tab
+        
+        # Check other tabs if not found
+        if not target_tab:
+            for tab in self.tabs_by_frame.values():
+                if tab is self.main_tab:
+                    continue
+                    
+                # Exact path match
+                if tab.path and tab.path == script_path:
+                    target_tab = tab
+                    break
+                
+                # Snapshot/Temp match by name
+                if tab.path is None:
+                    # e.g. script_path = .../snapshot/module.py, tab name = module.py
+                    if script_path.name == (tab.virtual_name or ''):
+                        target_tab = tab
+                        break
+                    # e.g. script_path = .../snapshot/module_2.py, tab name = module_2.py
+                    if script_path.name == tab.temp_name:
+                        target_tab = tab
+                        break
+
+        if target_tab:
+            self.notebook.select(target_tab.frame)
+            target_tab.text.see(f'{lineno}.0')
+            target_tab.text.tag_add('execution_line', f'{lineno}.0', f'{lineno}.end')
+            # Force update to show highlight immediately
+            try:
+                target_tab.text.update_idletasks()
+            except Exception:
+                pass
+
+    def clear_execution_highlights(self) -> None:
+        for tab in self.tabs_by_frame.values():
+            tab.text.tag_remove('execution_line', '1.0', 'end')
+
     def _is_user_step_frame(self, frame, script_path: Path, runtime_dir: Path | None) -> bool:
         filename = frame.f_code.co_filename
         if not filename:
             return False
+        
+        # Normalize paths
         try:
             file_path = Path(filename).resolve()
+            script_resolved = script_path.resolve()
         except Exception:
-            return False
-        try:
-            if runtime_dir and file_path.is_relative_to(runtime_dir):
+            # Fallback for simple name matching if resolve fails
+            name = Path(filename).name
+            return name == script_path.name
+
+        # Check if it matches the main script
+        if file_path == script_resolved:
+            return True
+
+        # Check if it is inside the runtime directory (imported modules)
+        if runtime_dir:
+            try:
+                runtime_resolved = runtime_dir.resolve()
+                if file_path.is_relative_to(runtime_resolved):
+                    return True
+            except Exception:
+                pass
+            
+            # Text based check as fallback
+            if str(runtime_dir) in str(file_path):
                 return True
-        except Exception:
-            if runtime_dir and str(runtime_dir) in str(file_path):
-                return True
-        try:
-            return file_path == script_path.resolve()
-        except Exception:
-            return False
+                
+        return False
 
     def _prepare_run_context(self, tab: EditorTab) -> tuple[Path, Path | None] | None:
         tabs = list(self.tabs_by_frame.values())

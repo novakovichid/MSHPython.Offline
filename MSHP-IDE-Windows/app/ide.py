@@ -868,8 +868,34 @@ class PortableIDE(tk.Tk):
         return self.temp_session_dir.exists()
 
     def _clear_temp_session(self) -> None:
-        if self.temp_session_dir.exists():
-            shutil.rmtree(self.temp_session_dir, ignore_errors=True)
+        if not self.temp_session_dir.exists():
+            self.temp_assets.clear()
+            for tab in self.tabs_by_frame.values():
+                tab.temp_name = None
+            return
+
+        def on_error(func, path, exc_info):
+            # Try to make writable and delete again
+            if not os.access(path, os.W_OK):
+                try:
+                    os.chmod(path, 0o777)
+                    func(path)
+                except Exception:
+                    pass
+        
+        try:
+            shutil.rmtree(self.temp_session_dir, onerror=on_error)
+        except Exception:
+            # Fallback: try to delete contents
+            for p in self.temp_session_dir.glob('*'):
+                try:
+                    if p.is_dir():
+                        shutil.rmtree(p, ignore_errors=True)
+                    else:
+                        p.unlink()
+                except Exception:
+                    pass
+                    
         self.temp_assets.clear()
         for tab in self.tabs_by_frame.values():
             tab.temp_name = None
@@ -1741,7 +1767,7 @@ class PortableIDE(tk.Tk):
         self.destroy()
         os.execv(executable, args)
 
-    def run_current(self, step_mode: bool = False) -> None:
+    def run_current(self, step_mode: bool | None = None) -> None:
         tab = self.main_tab or self.get_current_tab()
         if tab is None or tab is not self.main_tab:
             tab = self._ensure_main_tab()
@@ -1750,7 +1776,12 @@ class PortableIDE(tk.Tk):
         if self._is_running():
             if not messagebox.askyesno('Процесс уже запущен', 'Остановить текущий процесс и запустить снова?'):
                 return
+            if step_mode is None:
+                step_mode = self.step_mode
             self.stop_process()
+        
+        if step_mode is None:
+            step_mode = False
 
         run_context = self._prepare_run_context(tab)
         if not run_context:
@@ -2127,11 +2158,49 @@ class PortableIDE(tk.Tk):
                             last_tick = now
                             try:
                                 if self.turtle_screen:
-                                    self.turtle_screen.update()
+                                    # Only update if tracer is enabled (default behavior).
+                                    # If user called tracer(0), we should unlikely force it except maybe via loop?
+                                    # Actually, if we are in this loop, we might want to respect turtle's policy.
+                                    # Turtle's tracer() value determines how often updates happen.
+                                    # But since we hijack the main loop, we must ensure update() is called eventually.
+                                    # If we don't call update(), screen freezes.
+                                    # So we MUST call self.update() (Tkinter).
+                                    # We only conditionally call self.turtle_screen.update() (Drawing).
+                                    
+                                    t_val = getattr(self.turtle_screen, '_tracer', 1)
+                                    if t_val: 
+                                        self.turtle_screen.update()
                                 self.update()
                             except Exception:
                                 pass
                 return tracer
+
+            # Monkey patch time.sleep to avoid freezing UI
+            original_sleep = time.sleep
+
+            def patched_sleep(seconds: float) -> None:
+                if self.turtle_abort or self._closing:
+                    return
+                # Ensure positive
+                if seconds < 0:
+                    seconds = 0
+                end = time.perf_counter() + seconds
+                while True:
+                    remaining = end - time.perf_counter()
+                    if remaining <= 0:
+                        break
+                    try:
+                        self.update()
+                    except Exception:
+                        pass
+                    if self.turtle_abort or self._closing:
+                        break
+                    # Sleep small chunks to save CPU
+                    step = min(remaining, 0.01)
+                    original_sleep(step)
+
+            if not step_mode:  # Only patch in normal mode (or always? Always safe.)
+                time.sleep = patched_sleep
 
             sys.settrace(tracer)
             try:
@@ -2157,6 +2226,7 @@ class PortableIDE(tk.Tk):
             except Exception:
                 self._append_output(traceback.format_exc(), tag='stderr')
             finally:
+                time.sleep = original_sleep
                 sys.settrace(prev_trace)
                 builtins.input = prev_input
                 self.turtle_running = False
@@ -2231,9 +2301,30 @@ class PortableIDE(tk.Tk):
             path_inserted = False
             runtime_inserted = False
 
+            # Monkey patch time.sleep
+            original_sleep = time.sleep
+            def patched_sleep(seconds: float) -> None:
+                if self.step_abort or self._closing:
+                    return
+                if seconds < 0: seconds = 0
+                end = time.perf_counter() + seconds
+                while True:
+                    remaining = end - time.perf_counter()
+                    if remaining <= 0: break
+                    try: self.update()
+                    except Exception: pass
+                    if self.step_abort or self._closing: break
+                    original_sleep(min(remaining, 0.01))
+            time.sleep = patched_sleep
+
             def tracer(frame, event, _arg):
                 if self.step_abort or self._closing:
                     raise SystemExit
+                # Ensure UI stays responsive
+                if event == 'line':
+                    try: self.update()
+                    except Exception: pass
+                    
                 if event == 'line' and self._is_user_step_frame(frame, script_path, runtime_dir):
                     self.highlight_execution_line(script_path, frame.f_lineno)
                     self._wait_for_step()
@@ -2266,6 +2357,7 @@ class PortableIDE(tk.Tk):
             except Exception:
                 self._append_output(traceback.format_exc(), tag='stderr')
             finally:
+                time.sleep = original_sleep
                 sys.settrace(prev_trace)
                 builtins.input = prev_input
                 sys.stdout = prev_stdout
