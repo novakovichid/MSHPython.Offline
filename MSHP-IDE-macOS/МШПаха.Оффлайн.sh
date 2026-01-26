@@ -46,5 +46,7 @@ if [[ -d "$PYDIR/lib/tk8.6" ]]; then
 fi
 export PYTHONHOME="$PYDIR"
 export PYTHON_PORTABLE="$PY"
+export DYLD_LIBRARY_PATH="$PYDIR/lib:${DYLD_LIBRARY_PATH:-}"
+export DYLD_FALLBACK_LIBRARY_PATH="$PYDIR/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
 
 exec "$PY" "$ROOT/app/ide.py"

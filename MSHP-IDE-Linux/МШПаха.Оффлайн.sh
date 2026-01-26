@@ -46,5 +46,6 @@ if [[ -d "$PYDIR/lib/tk8.6" ]]; then
 fi
 export PYTHONHOME="$PYDIR"
 export PYTHON_PORTABLE="$PY"
+export LD_LIBRARY_PATH="$PYDIR/lib:${LD_LIBRARY_PATH:-}"
 
 exec "$PY" "$ROOT/app/ide.py"

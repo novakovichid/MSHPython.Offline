@@ -878,8 +878,34 @@ class PortableIDE(tk.Tk):
         return self.temp_session_dir.exists()
 
     def _clear_temp_session(self) -> None:
-        if self.temp_session_dir.exists():
-            shutil.rmtree(self.temp_session_dir, ignore_errors=True)
+        if not self.temp_session_dir.exists():
+            self.temp_assets.clear()
+            for tab in self.tabs_by_frame.values():
+                tab.temp_name = None
+            return
+
+        def on_error(func, path, exc_info):
+            # Try to make writable and delete again
+            if not os.access(path, os.W_OK):
+                try:
+                    os.chmod(path, 0o777)
+                    func(path)
+                except Exception:
+                    pass
+        
+        try:
+            shutil.rmtree(self.temp_session_dir, onerror=on_error)
+        except Exception:
+            # Fallback: try to delete contents
+            for p in self.temp_session_dir.glob('*'):
+                try:
+                    if p.is_dir():
+                        shutil.rmtree(p, ignore_errors=True)
+                    else:
+                        p.unlink()
+                except Exception:
+                    pass
+                    
         self.temp_assets.clear()
         for tab in self.tabs_by_frame.values():
             tab.temp_name = None
@@ -1751,7 +1777,7 @@ class PortableIDE(tk.Tk):
         self.destroy()
         os.execv(executable, args)
 
-    def run_current(self, step_mode: bool = False) -> None:
+    def run_current(self, step_mode: bool | None = None) -> None:
         tab = self.main_tab or self.get_current_tab()
         if tab is None or tab is not self.main_tab:
             tab = self._ensure_main_tab()
@@ -1760,7 +1786,12 @@ class PortableIDE(tk.Tk):
         if self._is_running():
             if not messagebox.askyesno('Процесс уже запущен', 'Остановить текущий процесс и запустить снова?'):
                 return
+            if step_mode is None:
+                step_mode = self.step_mode
             self.stop_process()
+        
+        if step_mode is None:
+            step_mode = False
 
         run_context = self._prepare_run_context(tab)
         if not run_context:
@@ -2134,10 +2165,30 @@ class PortableIDE(tk.Tk):
             prev_trace = sys.gettrace()
             prev_cwd = os.getcwd()
             prev_input = builtins.input
+            prev_sleep = time.sleep
             script_dir = str(script_path.parent)
             path_inserted = False
             runtime_inserted = False
             last_tick = time.perf_counter()
+
+            def patched_sleep(seconds: float) -> None:
+                if self.turtle_abort or self._closing:
+                    return
+                if seconds < 0:
+                    seconds = 0
+                end = time.perf_counter() + seconds
+                while True:
+                    remaining = end - time.perf_counter()
+                    if remaining <= 0:
+                        break
+                    try:
+                        self.update()
+                    except Exception:
+                        pass
+                    if self.turtle_abort or self._closing:
+                        break
+                    step = min(remaining, 0.01)
+                    prev_sleep(step)
 
             def tracer(_frame, event, _arg):
                 nonlocal last_tick
@@ -2160,12 +2211,16 @@ class PortableIDE(tk.Tk):
                             last_tick = now
                             try:
                                 if self.turtle_screen:
-                                    self.turtle_screen.update()
+                                    t_val = getattr(self.turtle_screen, '_tracer', 1)
+                                    if t_val:
+                                        self.turtle_screen.update()
                                 self.update()
                             except Exception:
                                 pass
                 return tracer
 
+            if not step_mode:
+                time.sleep = patched_sleep
             sys.settrace(tracer)
             try:
                 builtins.input = self._read_gui_input
@@ -2192,6 +2247,8 @@ class PortableIDE(tk.Tk):
             finally:
                 sys.settrace(prev_trace)
                 builtins.input = prev_input
+                if not step_mode:
+                    time.sleep = prev_sleep
                 self.turtle_running = False
                 self.step_mode = False
                 self._show_step_controls(False)
@@ -2260,19 +2317,47 @@ class PortableIDE(tk.Tk):
             prev_input = builtins.input
             prev_stdout = sys.stdout
             prev_stderr = sys.stderr
+            prev_sleep = time.sleep
             script_dir = str(script_path.parent)
             path_inserted = False
             runtime_inserted = False
 
+            def patched_sleep(seconds: float) -> None:
+                if self.step_abort or self._closing:
+                    return
+                if seconds < 0:
+                    seconds = 0
+                end = time.perf_counter() + seconds
+                while True:
+                    remaining = end - time.perf_counter()
+                    if remaining <= 0:
+                        break
+                    try:
+                        self.update()
+                    except Exception:
+                        pass
+                    if self.step_abort or self._closing:
+                        break
+                    step = min(remaining, 0.01)
+                    prev_sleep(step)
+
             def tracer(frame, event, _arg):
                 if self.step_abort or self._closing:
                     raise SystemExit
+                # Ensure UI stays responsive
+                if event == 'line':
+                    try:
+                        self.update()
+                    except Exception:
+                        pass
+                    
                 if event == 'line' and self._is_user_step_frame(frame, script_path, runtime_dir):
                     self.highlight_execution_line(script_path, frame.f_lineno)
                     self._wait_for_step()
                     self.clear_execution_highlights()
                 return tracer
 
+            time.sleep = patched_sleep
             sys.settrace(tracer)
             try:
                 builtins.input = self._read_gui_input
@@ -2303,6 +2388,7 @@ class PortableIDE(tk.Tk):
                 builtins.input = prev_input
                 sys.stdout = prev_stdout
                 sys.stderr = prev_stderr
+                time.sleep = prev_sleep
                 if path_inserted:
                     try:
                         sys.path.remove(script_dir)
