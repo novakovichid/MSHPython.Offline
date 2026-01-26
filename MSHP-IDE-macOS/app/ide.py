@@ -345,6 +345,9 @@ class PortableIDE(tk.Tk):
         super().__init__()
         self.title('МШПаха.Оффлайн')
         self.geometry('1100x700')
+        # Fixed turtle canvas size: 400x400 + padding + borders
+        # Minimum window size to accommodate this
+        self.minsize(820, 700)
         self._icon_image = None
         self._set_app_icon()
 
@@ -595,11 +598,18 @@ class PortableIDE(tk.Tk):
         self.notebook.bind('<<NotebookTabChanged>>', self._on_tab_changed)
         self.editor_paned.add(editor_main, weight=3)
 
+        # Turtle frame: fixed size, not resizable
         self.turtle_frame = ttk.Frame(self.editor_paned, style='Editor.TFrame')
-        self.turtle_canvas = tk.Canvas(self.turtle_frame, highlightthickness=1, takefocus=1)
-        self.turtle_canvas.pack(fill='both', expand=True, padx=6, pady=6)
+        self.turtle_frame.pack_propagate(False)
+        self.turtle_frame.configure(width=416, height=416)
+        
+        self.turtle_canvas = tk.Canvas(self.turtle_frame, highlightthickness=1, takefocus=1, width=400, height=400)
+        self.turtle_canvas.pack(padx=6, pady=6)
         self.turtle_canvas.bind('<Button-1>', lambda _e: self.turtle_canvas.focus_set())
         self.turtle_canvas.bind('<Configure>', self._on_turtle_canvas_resize)
+        
+        # Bind to prevent sash movement when turtle is visible
+        self.editor_paned.bind('<Button-1>', self._on_paned_click, add=True)
 
         self.paned.add(editor_frame, weight=3)
 
@@ -1927,11 +1937,38 @@ class PortableIDE(tk.Tk):
 
     def _show_turtle_panel(self, show: bool) -> None:
         if show and not self.turtle_visible:
-            self.editor_paned.add(self.turtle_frame, weight=2)
+            self.editor_paned.add(self.turtle_frame, weight=0)
             self.turtle_visible = True
+            # Lock the sash to prevent resizing
+            self.after(10, lambda: self._lock_turtle_sash())
         elif not show and self.turtle_visible:
             self.editor_paned.forget(self.turtle_frame)
             self.turtle_visible = False
+
+    def _lock_turtle_sash(self) -> None:
+        """Lock the sash between editor and turtle panel to prevent resizing."""
+        if self.turtle_visible:
+            try:
+                # Get current sash position and restore it on any change
+                self.turtle_frame.width = 416
+                self.turtle_frame.configure(width=416)
+            except Exception:
+                pass
+
+    def _on_paned_click(self, event) -> str:
+        """Prevent sash dragging when turtle panel is visible."""
+        if not self.turtle_visible:
+            return 'continue'
+        
+        # Check if click is on the sash (approximately in the middle between panels)
+        try:
+            sash_x = self.editor_paned.sash_coord(0)[0] if self.editor_paned.sash_coord(0) else None
+            if sash_x and abs(event.x - sash_x) < 5:
+                # Click on sash - prevent dragging
+                return 'break'
+        except Exception:
+            pass
+        return 'continue'
 
     def _prepare_turtle_screen(self) -> None:
         import turtle
@@ -2039,15 +2076,11 @@ class PortableIDE(tk.Tk):
     def _sync_turtle_world(self) -> None:
         if not self.turtle_screen or self._turtle_custom_coords:
             return
-        width = self.turtle_canvas.winfo_width()
-        height = self.turtle_canvas.winfo_height()
-        if width > 2 and height > 2 and self._turtle_setworld:
+        # Fixed canvas size: 400x400 pixels
+        w = 400
+        h = 400
+        if self._turtle_setworld:
             try:
-                # Account for borders and highlightthickness to prevent 1-2px inaccuracies
-                # which can cause subtle oval distortion
-                bd = 2  # Approximate border
-                w = width - bd * 2
-                h = height - bd * 2
                 if self.turtle_screen:
                     self.turtle_screen.canvwidth = w
                     self.turtle_screen.canvheight = h
