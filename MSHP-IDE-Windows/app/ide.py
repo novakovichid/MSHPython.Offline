@@ -684,8 +684,8 @@ class PortableIDE(tk.Tk):
         self.tools_menu = tk.Menu(self.menubar, tearoff=0)
         self.tools_menu.add_command(label='↦ Сделать отступ', command=self.indent_selection)
         self.tools_menu.add_separator()
-        self.tools_menu.add_command(label='🔐 Экспорт проекта в хэш', command=self.export_project_hash)
-        self.tools_menu.add_command(label='🔐 Импорт проекта из хэша', command=self.import_project_hash)
+        self.tools_menu.add_command(label='🔐 Экспорт кода проекта', command=self.export_project_hash)
+        self.tools_menu.add_command(label='🔐 Импорт кода проекта', command=self.import_project_hash)
 
         self.menubar.add_cascade(label='Файл', menu=self.file_menu)
         self.menubar.add_cascade(label='Запуск', menu=self.run_menu)
@@ -1150,8 +1150,8 @@ class PortableIDE(tk.Tk):
             tab = EditorTab(self)
             tab.virtual_name = name
             tab.set_content(str(entry.get('content', '')))
-            self.notebook.add(tab.frame, text=tab.virtual_name)
             self.tabs_by_frame[str(tab.frame)] = tab
+            self.notebook.add(tab.frame, text=tab.virtual_name)
 
         self.notebook.select(main_tab.frame)
         return True
@@ -1320,8 +1320,8 @@ class PortableIDE(tk.Tk):
     def new_tab(self) -> None:
         tab = EditorTab(self)
         tab.virtual_name = self._next_virtual_name()
-        self.notebook.add(tab.frame, text=tab.virtual_name)
         self.tabs_by_frame[str(tab.frame)] = tab
+        self.notebook.add(tab.frame, text=tab.virtual_name)
         self.notebook.select(tab.frame)
         tab.text.focus_set()
         if tab.virtual_name == 'main.py':
@@ -1340,18 +1340,10 @@ class PortableIDE(tk.Tk):
         except Exception as exc:
             messagebox.showerror('Не удалось открыть', str(exc))
             return
-        main_tab = self.main_tab or self._ensure_main_tab()
-        if main_tab and not main_tab.path and not main_tab.modified and not main_tab.get_content().strip():
-            main_tab.path = file_path
-            main_tab.set_content(content)
-            self.notebook.select(main_tab.frame)
-            main_tab.text.focus_set()
-            self.update_tab_title(main_tab)
-            return
         tab = EditorTab(self, file_path)
         tab.set_content(content)
-        self.notebook.add(tab.frame, text=file_path.name)
         self.tabs_by_frame[str(tab.frame)] = tab
+        self.notebook.add(tab.frame, text=file_path.name)
         self.notebook.select(tab.frame)
         tab.text.focus_set()
 
@@ -1677,8 +1669,8 @@ class PortableIDE(tk.Tk):
             return self.main_tab
         tab = EditorTab(self)
         tab.virtual_name = 'main.py'
-        self.notebook.add(tab.frame, text='main.py')
         self.tabs_by_frame[str(tab.frame)] = tab
+        self.notebook.add(tab.frame, text='main.py')
         self.notebook.select(tab.frame)
         tab.text.focus_set()
         self.main_tab = tab
@@ -1710,7 +1702,7 @@ class PortableIDE(tk.Tk):
 
     def _focus_editor(self) -> None:
         tab = self.get_current_tab()
-        if tab:
+        if tab and tab.text.winfo_exists():
             tab.text.focus_set()
 
     def _cycle_tab(self, direction: int) -> str:
