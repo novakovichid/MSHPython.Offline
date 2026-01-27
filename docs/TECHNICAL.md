@@ -7,22 +7,18 @@ Python-Portable - Codex/
     app/ide.py
     python/              # portable Python для Windows (минимизированный)
     .runtime/
-    МШПаха.Оффлайн.bat
+    МШПайтон.Оффлайн.bat
   MSHP-IDE-macOS/
     app/ide.py
     python/
       x86_64/            # Intel
       aarch64/           # Apple Silicon
-    .runtime/
-    МШПаха.Оффлайн.sh
-  MSHP-IDE-Linux/
+    МШПайтон.Оффлайн.sh
     app/ide.py
     python/
       x86_64/            # Intel/AMD
       aarch64/           # ARM
-    .runtime/
-    МШПаха.Оффлайн.sh
-  docs/
+    МШПайтон.Оффлайн.sh
 ```
 
 ## Запуск и поиск Python
@@ -31,7 +27,7 @@ Python-Portable - Codex/
 - Поиск выполняется функцией `find_python_in_dir`:
   - Windows: ищет `python.exe`.
   - macOS/Linux: ищет `python3` или `python`.
-- В macOS/Linux `МШПаха.Оффлайн.sh` выбирает папку по архитектуре (`x86_64` или `aarch64`)
+- В macOS/Linux `МШПайтон.Оффлайн.sh` выбирает папку по архитектуре (`x86_64` или `aarch64`)
   и выставляет `PYTHONHOME`, `TCL_LIBRARY`, `TK_LIBRARY`.
 
 ## Архитектура IDE

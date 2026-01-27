@@ -343,7 +343,7 @@ class EditorTab:
 class PortableIDE(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title('МШПаха.Оффлайн')
+        self.title('МШПайтон.Оффлайн')
         self.geometry('1100x700')
         # Fixed turtle canvas size: 400x400 + padding + borders
         # Minimum window size to accommodate this

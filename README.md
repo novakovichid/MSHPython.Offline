@@ -12,11 +12,11 @@ Python-Portable - Codex/
 ```
 
 ## Windows
-Перейди в `MSHP-IDE-Windows/` и запусти `МШПаха.Оффлайн.bat`.
+Перейди в `MSHP-IDE-Windows/` и запусти `МШПайтон.Оффлайн.bat`.
 
 ## macOS / Linux
-Перейди в `MSHP-IDE-macOS/` или `MSHP-IDE-Linux/` и запусти `./МШПаха.Оффлайн.sh`
-(понадобится `chmod +x МШПаха.Оффлайн.sh`).
+Перейди в `MSHP-IDE-macOS/` или `MSHP-IDE-Linux/` и запусти `./МШПайтон.Оффлайн.sh`
+(понадобится `chmod +x МШПайтон.Оффлайн.sh`).
 Внутри лежат два portable‑сборочных варианта: `python/x86_64` и `python/aarch64`.
 
 ## Примечание
