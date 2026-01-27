@@ -332,7 +332,6 @@ class EditorTab:
         self.text.insert('1.0', content)
         self.text.edit_modified(False)
         self.modified = False
-        self.app.update_tab_title(self)
         self.apply_highlight()
         self._update_line_numbers()
 
@@ -374,6 +373,7 @@ class PortableIDE(tk.Tk):
         self.main_tab: EditorTab | None = None
         self.temp_session_dir = RUNTIME_DIR / 'session'
         self.temp_assets: set[str] = set()
+        self._waiting_for_input = False
         self.temp_mode_label: ttk.Label | None = None
         self.temp_import_button: ttk.Button | None = None
         self.temp_show_images_button: ttk.Button | None = None
@@ -413,6 +413,7 @@ class PortableIDE(tk.Tk):
         style.configure('Toolbar.TFrame', background=theme['toolbar_bg'])
         style.configure('Runbar.TFrame', background=theme['app_bg'])
         style.configure('TLabel', background=theme['app_bg'], foreground=theme['editor_fg'])
+        style.configure('Toolbar.TLabel', background=theme['panel_bg'], foreground=theme['editor_fg'], font=('Consolas', 12, 'bold'))
         style.configure(
             'TCheckbutton',
             background=theme['check_bg'],
@@ -613,27 +614,12 @@ class PortableIDE(tk.Tk):
 
         self.paned.add(editor_frame, weight=3)
 
-        self.input_frame = ttk.Frame(self.paned)
-        input_label = ttk.Label(self.input_frame, text='Ввод (Enter — отправить, Ctrl+Enter — новая строка):')
-        input_label.pack(side='top', anchor='w', padx=8, pady=(6, 0))
-        self.input_text = tk.Text(
-            self.input_frame,
-            height=3,
-            wrap='word',
-            font=INPUT_FONT,
-            relief='solid',
-            bd=1,
-            highlightthickness=1,
-        )
-        self.input_text.pack(fill='x', expand=True, padx=8, pady=6)
-        self.input_text.bind('<Return>', self._send_console_input)
-        self.input_text.bind('<Control-Return>', self._insert_input_newline)
-        self.input_text.bind('<FocusIn>', self._on_input_focus_in)
-        self.input_text.bind('<FocusOut>', self._on_input_focus_out)
-        self._bind_input_shortcuts()
-        self.paned.add(self.input_frame, weight=0)
+        # Bottom panel with console and input side by side
+        bottom_frame = ttk.Frame(self.paned)
+        self.bottom_paned = ttk.Panedwindow(bottom_frame, orient='horizontal')
+        self.bottom_paned.pack(fill='both', expand=True)
 
-        console_frame = ttk.Frame(self.paned)
+        console_frame = ttk.Frame(self.bottom_paned)
         self.console = tk.Text(
             console_frame,
             height=10,
@@ -651,7 +637,46 @@ class PortableIDE(tk.Tk):
         self.console.configure(yscrollcommand=console_scroll.set)
         console_scroll.pack(fill='y', side='right')
 
-        self.paned.add(console_frame, weight=1)
+        self.bottom_paned.add(console_frame, weight=2)
+
+        # Input frame on the right
+        self.input_frame = ttk.Frame(self.bottom_paned, style='Editor.TFrame')
+        
+        # Input header with title and shortcuts
+        input_header = ttk.Frame(self.input_frame, style='Editor.TFrame')
+        input_header.pack(side='top', anchor='w', fill='x', padx=8, pady=(6, 2))
+        
+        self.input_label = ttk.Label(input_header, text='Ввод:', style='Toolbar.TLabel')
+        self.input_label.pack(side='left', anchor='w')
+        
+        input_shortcuts = ttk.Label(
+            input_header, 
+            text='Enter — отправить  •  Ctrl+Enter — новая строка',
+            font=('Consolas', 9),
+            foreground='#888888'
+        )
+        input_shortcuts.pack(side='left', padx=(12, 0), anchor='w')
+        
+        self.input_text = tk.Text(
+            self.input_frame,
+            height=6,
+            wrap='word',
+            font=('Consolas', 16, 'bold'),
+            relief='solid',
+            bd=2,
+            highlightthickness=1,
+            insertwidth=5,
+            insertbackground='#ff0000',
+        )
+        self.input_text.pack(fill='both', expand=True, padx=8, pady=(0, 6))
+        self.input_text.bind('<Return>', self._send_console_input)
+        self.input_text.bind('<Control-Return>', self._insert_input_newline)
+        self.input_text.bind('<FocusIn>', self._on_input_focus_in)
+        self.input_text.bind('<FocusOut>', self._on_input_focus_out)
+        self._bind_input_shortcuts()
+        
+        self.bottom_paned.add(self.input_frame, weight=1)
+        self.paned.add(bottom_frame, weight=1)
 
         self.tabs_by_frame: dict[str, EditorTab] = {}
         self._apply_theme()
@@ -1150,8 +1175,9 @@ class PortableIDE(tk.Tk):
             tab = EditorTab(self)
             tab.virtual_name = name
             tab.set_content(str(entry.get('content', '')))
-            self.tabs_by_frame[str(tab.frame)] = tab
             self.notebook.add(tab.frame, text=tab.virtual_name)
+            self.tabs_by_frame[str(tab.frame)] = tab
+            self.update_tab_title(tab)
 
         self.notebook.select(main_tab.frame)
         return True
@@ -1181,31 +1207,35 @@ class PortableIDE(tk.Tk):
         return 'break'
 
     def _on_input_focus_in(self, _event=None) -> None:
-        self.input_text.configure(background=self.theme['input_bg_focus'])
+        if self._waiting_for_input:
+            self.input_text.configure(
+                background='#2563eb',
+                foreground='#ffffff'
+            )
 
     def _on_input_focus_out(self, _event=None) -> None:
-        self.input_text.configure(background=self.theme['input_bg'])
+        if not self._waiting_for_input:
+            self.input_text.configure(
+                background=self.theme['input_bg'],
+                foreground=self.theme['input_fg']
+            )
 
     def _update_input_state(self) -> None:
         self.input_text.configure(state='normal')
 
     def _focus_input(self) -> None:
         self.input_text.focus_set()
-        self.input_text.configure(background=self.theme['input_bg_focus'])
 
     def _pulse_input_focus(self) -> None:
-        self._focus_input()
+        self._waiting_for_input = True
+        self.input_label.configure(text='⏳ Ожидание ввода:')
         self.input_text.configure(
-            highlightbackground=self.theme['accent_dark'],
-            highlightcolor=self.theme['accent_dark'],
+            background='#2563eb',
+            foreground='#ffffff',
+            relief='solid',
+            bd=3,
         )
-        self.after(
-            350,
-            lambda: self.input_text.configure(
-                highlightbackground=self.theme['accent'],
-                highlightcolor=self.theme['accent'],
-            ),
-        )
+        self.input_text.focus_set()
 
     def _insert_input_newline(self, _event=None) -> str:
         self.input_text.insert('insert', '\n')
@@ -1232,6 +1262,16 @@ class PortableIDE(tk.Tk):
 
         text = self.input_text.get('1.0', 'end-1c')
         self.input_text.delete('1.0', 'end')
+        
+        # Clear the blue highlight after input
+        self._waiting_for_input = False
+        self.input_label.configure(text='Ввод:')
+        self.input_text.configure(
+            background=self.theme['input_bg'],
+            foreground=self.theme['input_fg'],
+            relief='solid',
+            bd=2,
+        )
 
         if self.process and self.process.stdin:
             self._append_input_echo(text)
@@ -1320,12 +1360,24 @@ class PortableIDE(tk.Tk):
     def new_tab(self) -> None:
         tab = EditorTab(self)
         tab.virtual_name = self._next_virtual_name()
-        self.tabs_by_frame[str(tab.frame)] = tab
         self.notebook.add(tab.frame, text=tab.virtual_name)
-        self.notebook.select(tab.frame)
-        tab.text.focus_set()
+        self.tabs_by_frame[str(tab.frame)] = tab
         if tab.virtual_name == 'main.py':
             self.main_tab = tab
+        self.update_tab_title(tab)
+        self.notebook.select(tab.frame)
+        tab.text.focus_set()
+
+    def _find_tab_by_filename(self, filename: str) -> EditorTab | None:
+        """Find an open tab by its filename (checking both path and virtual_name)."""
+        for tab in self.tabs_by_frame.values():
+            # Check by path name (for saved files)
+            if tab.path and tab.path.name == filename:
+                return tab
+            # Check by virtual name (for unsaved/temp files)
+            if tab.virtual_name and tab.virtual_name == filename:
+                return tab
+        return None
 
     def open_file(self) -> None:
         path = filedialog.askopenfilename(
@@ -1340,10 +1392,36 @@ class PortableIDE(tk.Tk):
         except Exception as exc:
             messagebox.showerror('Не удалось открыть', str(exc))
             return
+        
+        # Check if a file with the same name is already open
+        existing_tab = self._find_tab_by_filename(file_path.name)
+        if existing_tab:
+            response = messagebox.askyesno(
+                'Файл уже открыт',
+                f'Файл "{file_path.name}" уже открыт.\n\nОткрыть новый файл вместо текущего?'
+            )
+            if not response:
+                return
+            
+            # Try to close the existing tab with save confirmation
+            if not self._confirm_discard(existing_tab):
+                return
+            
+            # Close the existing tab
+            self.notebook.forget(existing_tab.frame)
+            self.tabs_by_frame.pop(str(existing_tab.frame), None)
+            # If it was main.py, reset the reference
+            if existing_tab is self.main_tab:
+                self.main_tab = None
+        
         tab = EditorTab(self, file_path)
         tab.set_content(content)
-        self.tabs_by_frame[str(tab.frame)] = tab
         self.notebook.add(tab.frame, text=file_path.name)
+        self.tabs_by_frame[str(tab.frame)] = tab
+        # If this is main.py, set the reference
+        if file_path.name == 'main.py':
+            self.main_tab = tab
+        self.update_tab_title(tab)
         self.notebook.select(tab.frame)
         tab.text.focus_set()
 
@@ -1669,12 +1747,13 @@ class PortableIDE(tk.Tk):
             return self.main_tab
         tab = EditorTab(self)
         tab.virtual_name = 'main.py'
-        self.tabs_by_frame[str(tab.frame)] = tab
         self.notebook.add(tab.frame, text='main.py')
-        self.notebook.select(tab.frame)
-        tab.text.focus_set()
+        self.tabs_by_frame[str(tab.frame)] = tab
         self.main_tab = tab
         self._main_created = True
+        self.update_tab_title(tab)
+        self.notebook.select(tab.frame)
+        tab.text.focus_set()
         return tab
 
     def get_current_tab(self) -> EditorTab | None:
@@ -2647,9 +2726,6 @@ class PortableIDE(tk.Tk):
             return
         if not text.endswith('\n'):
             self._pulse_input_focus()
-
-    def _pulse_input_focus(self) -> None:
-        self._focus_input()
 
     def clear_console(self) -> None:
         self.console.configure(state='normal')
