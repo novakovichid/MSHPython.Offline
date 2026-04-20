@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import base64
 import builtins
@@ -19,14 +19,41 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 import tokenize
 
+import tkinter.font as tkfont
+
 ROOT_DIR = Path(__file__).resolve().parent.parent
 RUNTIME_DIR = ROOT_DIR / '.runtime'
 PYTHON_DIR = ROOT_DIR / 'python'
 
-EDITOR_FONT = ('Consolas', 12)
-CONSOLE_FONT = ('Consolas', 11)
-LINE_NUMBER_FONT = ('Consolas', 10)
-INPUT_FONT = ('Consolas', 11)
+def get_best_font(families: list[str], default: str = 'monospace') -> str:
+    available = set(f.lower() for f in tkfont.families())
+    for f in families:
+        if f.lower() in available:
+            return f
+    return default
+
+# Font selection based on OS
+if sys.platform == 'darwin':  # macOS
+    MONO_FONT_NAME = get_best_font(['Menlo', 'Monaco', 'SF Mono', 'Courier New'], 'Courier')
+    UI_FONT_NAME = '.AppleSystemUIFont'
+    UI_FONT_SIZE = 13
+elif os.name == 'nt':  # Windows
+    MONO_FONT_NAME = get_best_font(['Consolas', 'Cascadia Code', 'Courier New'], 'Courier New')
+    UI_FONT_NAME = 'Segoe UI'
+    UI_FONT_SIZE = 10
+else:  # Linux
+    MONO_FONT_NAME = get_best_font(['JetBrains Mono', 'DejaVu Sans Mono', 'Ubuntu Mono', 'Liberation Mono'], 'monospace')
+    UI_FONT_NAME = get_best_font(['Ubuntu', 'Cantarell', 'DejaVu Sans', 'sans-serif'], 'sans-serif')
+    UI_FONT_SIZE = 10
+
+EDITOR_FONT = (MONO_FONT_NAME, 12)
+CONSOLE_FONT = (MONO_FONT_NAME, 11)
+LINE_NUMBER_FONT = (MONO_FONT_NAME, 10)
+INPUT_FONT = (MONO_FONT_NAME, 14, 'bold')
+UI_FONT = (UI_FONT_NAME, UI_FONT_SIZE)
+UI_FONT_BOLD = (UI_FONT_NAME, UI_FONT_SIZE, 'bold')
+
+INPUT_WAIT_EMOJI = '⏳' if os.name == 'nt' else '⚡'
 
 INPUT_PREFIX = '> '
 
@@ -238,7 +265,7 @@ class EditorTab:
         self.text.tag_configure('comment', foreground=theme['syntax_comment'])
         self.text.tag_configure('string', foreground=theme['syntax_string'])
         self.text.tag_configure('number', foreground=theme['syntax_number'])
-        self.text.tag_configure('keyword', foreground=theme['syntax_keyword'], font=('Consolas', 12, 'bold'))
+        self.text.tag_configure('keyword', foreground=theme['syntax_keyword'], font=(MONO_FONT_NAME, 12, 'bold'))
         self.text.tag_configure('builtin', foreground=theme['syntax_builtin'])
         self.text.tag_configure('error', foreground=theme['syntax_error'])
         self.text.tag_configure('execution_line', background=theme['execution_line_bg'])
@@ -412,8 +439,8 @@ class PortableIDE(tk.Tk):
         style.configure('Editor.TFrame', background=theme['panel_bg'])
         style.configure('Toolbar.TFrame', background=theme['toolbar_bg'])
         style.configure('Runbar.TFrame', background=theme['app_bg'])
-        style.configure('TLabel', background=theme['app_bg'], foreground=theme['editor_fg'])
-        style.configure('Toolbar.TLabel', background=theme['panel_bg'], foreground=theme['editor_fg'], font=('Consolas', 12, 'bold'))
+        style.configure('TLabel', background=theme['app_bg'], foreground=theme['editor_fg'], font=UI_FONT)
+        style.configure('Toolbar.TLabel', background=theme['panel_bg'], foreground=theme['editor_fg'], font=UI_FONT_BOLD)
         style.configure(
             'TCheckbutton',
             background=theme['check_bg'],
@@ -546,12 +573,12 @@ class PortableIDE(tk.Tk):
             command=self.show_temp_images_list,
             style='Toolbar.TButton',
         )
-        self.temp_mode_label = ttk.Label(file_toolbar, text='Режим: Обычный', font=('Consolas', 10, 'bold'))
+        self.temp_mode_label = ttk.Label(file_toolbar, text='Режим: Обычный', font=UI_FONT_BOLD)
         self.temp_mode_label.pack(side='right', padx=8)
 
         run_toolbar = ttk.Frame(self, style='Runbar.TFrame')
         run_toolbar.pack(fill='x')
-        ttk.Label(run_toolbar, text='Запуск', font=('Consolas', 11, 'bold')).pack(side='left', padx=(8, 6), pady=6)
+        ttk.Label(run_toolbar, text='Запуск', font=UI_FONT_BOLD).pack(side='left', padx=(8, 6), pady=6)
         self.run_button = ttk.Button(
             run_toolbar,
             text='▶️ Запустить main.py (F5)',
@@ -652,7 +679,7 @@ class PortableIDE(tk.Tk):
         input_shortcuts = ttk.Label(
             input_header, 
             text='Enter — отправить  •  Ctrl+Enter — новая строка',
-            font=('Consolas', 9),
+            font=UI_FONT,
             foreground='#888888'
         )
         input_shortcuts.pack(side='left', padx=(12, 0), anchor='w')
@@ -661,7 +688,7 @@ class PortableIDE(tk.Tk):
             self.input_frame,
             height=6,
             wrap='word',
-            font=('Consolas', 16, 'bold'),
+            font=INPUT_FONT,
             relief='solid',
             bd=2,
             highlightthickness=1,
@@ -772,7 +799,7 @@ class PortableIDE(tk.Tk):
         frame = ttk.Frame(self.settings_window, padding=12)
         frame.pack(fill='both', expand=True)
 
-        ttk.Label(frame, text='Основные', font=('Consolas', 11, 'bold')).pack(anchor='w')
+        ttk.Label(frame, text='Основные', font=UI_FONT_BOLD).pack(anchor='w')
 
         ttk.Checkbutton(
             frame,
@@ -781,7 +808,7 @@ class PortableIDE(tk.Tk):
             command=self._apply_theme,
         ).pack(anchor='w', pady=(6, 0))
 
-        ttk.Label(frame, text='Сохранение перед запуском', font=('Consolas', 11, 'bold')).pack(
+        ttk.Label(frame, text='Сохранение перед запуском', font=UI_FONT_BOLD).pack(
             anchor='w', pady=(12, 0)
         )
 
@@ -1228,7 +1255,7 @@ class PortableIDE(tk.Tk):
 
     def _pulse_input_focus(self) -> None:
         self._waiting_for_input = True
-        self.input_label.configure(text='⏳ Ожидание ввода:')
+        self.input_label.configure(text=f'{INPUT_WAIT_EMOJI} Ожидание ввода:')
         self.input_text.configure(
             background='#2563eb',
             foreground='#ffffff',
@@ -1265,13 +1292,13 @@ class PortableIDE(tk.Tk):
         
         # Clear the blue highlight after input
         self._waiting_for_input = False
-        self.input_label.configure(text='Ввод:')
         self.input_text.configure(
             background=self.theme['input_bg'],
             foreground=self.theme['input_fg'],
             relief='solid',
             bd=2,
         )
+        self.input_label.configure(text='Ввод:')
 
         if self.process and self.process.stdin:
             self._append_input_echo(text)
@@ -2236,10 +2263,30 @@ class PortableIDE(tk.Tk):
             prev_trace = sys.gettrace()
             prev_cwd = os.getcwd()
             prev_input = builtins.input
+            prev_sleep = time.sleep
             script_dir = str(script_path.parent)
             path_inserted = False
             runtime_inserted = False
             last_tick = time.perf_counter()
+
+            def patched_sleep(seconds: float) -> None:
+                if self.turtle_abort or self._closing:
+                    return
+                if seconds < 0:
+                    seconds = 0
+                end = time.perf_counter() + seconds
+                while True:
+                    remaining = end - time.perf_counter()
+                    if remaining <= 0:
+                        break
+                    try:
+                        self.update()
+                    except Exception:
+                        pass
+                    if self.turtle_abort or self._closing:
+                        break
+                    step = min(remaining, 0.01)
+                    prev_sleep(step)
 
             def tracer(_frame, event, _arg):
                 nonlocal last_tick
@@ -2262,50 +2309,16 @@ class PortableIDE(tk.Tk):
                             last_tick = now
                             try:
                                 if self.turtle_screen:
-                                    # Only update if tracer is enabled (default behavior).
-                                    # If user called tracer(0), we should unlikely force it except maybe via loop?
-                                    # Actually, if we are in this loop, we might want to respect turtle's policy.
-                                    # Turtle's tracer() value determines how often updates happen.
-                                    # But since we hijack the main loop, we must ensure update() is called eventually.
-                                    # If we don't call update(), screen freezes.
-                                    # So we MUST call self.update() (Tkinter).
-                                    # We only conditionally call self.turtle_screen.update() (Drawing).
-                                    
                                     t_val = getattr(self.turtle_screen, '_tracer', 1)
-                                    if t_val: 
+                                    if t_val:
                                         self.turtle_screen.update()
                                 self.update()
                             except Exception:
                                 pass
                 return tracer
 
-            # Monkey patch time.sleep to avoid freezing UI
-            original_sleep = time.sleep
-
-            def patched_sleep(seconds: float) -> None:
-                if self.turtle_abort or self._closing:
-                    return
-                # Ensure positive
-                if seconds < 0:
-                    seconds = 0
-                end = time.perf_counter() + seconds
-                while True:
-                    remaining = end - time.perf_counter()
-                    if remaining <= 0:
-                        break
-                    try:
-                        self.update()
-                    except Exception:
-                        pass
-                    if self.turtle_abort or self._closing:
-                        break
-                    # Sleep small chunks to save CPU
-                    step = min(remaining, 0.01)
-                    original_sleep(step)
-
-            if not step_mode:  # Only patch in normal mode (or always? Always safe.)
+            if not step_mode:
                 time.sleep = patched_sleep
-
             sys.settrace(tracer)
             try:
                 builtins.input = self._read_gui_input
@@ -2330,9 +2343,10 @@ class PortableIDE(tk.Tk):
             except Exception:
                 self._append_output(traceback.format_exc(), tag='stderr')
             finally:
-                time.sleep = original_sleep
                 sys.settrace(prev_trace)
                 builtins.input = prev_input
+                if not step_mode:
+                    time.sleep = prev_sleep
                 self.turtle_running = False
                 self.step_mode = False
                 self._show_step_controls(False)
@@ -2401,33 +2415,39 @@ class PortableIDE(tk.Tk):
             prev_input = builtins.input
             prev_stdout = sys.stdout
             prev_stderr = sys.stderr
+            prev_sleep = time.sleep
             script_dir = str(script_path.parent)
             path_inserted = False
             runtime_inserted = False
 
-            # Monkey patch time.sleep
-            original_sleep = time.sleep
             def patched_sleep(seconds: float) -> None:
                 if self.step_abort or self._closing:
                     return
-                if seconds < 0: seconds = 0
+                if seconds < 0:
+                    seconds = 0
                 end = time.perf_counter() + seconds
                 while True:
                     remaining = end - time.perf_counter()
-                    if remaining <= 0: break
-                    try: self.update()
-                    except Exception: pass
-                    if self.step_abort or self._closing: break
-                    original_sleep(min(remaining, 0.01))
-            time.sleep = patched_sleep
+                    if remaining <= 0:
+                        break
+                    try:
+                        self.update()
+                    except Exception:
+                        pass
+                    if self.step_abort or self._closing:
+                        break
+                    step = min(remaining, 0.01)
+                    prev_sleep(step)
 
             def tracer(frame, event, _arg):
                 if self.step_abort or self._closing:
                     raise SystemExit
                 # Ensure UI stays responsive
                 if event == 'line':
-                    try: self.update()
-                    except Exception: pass
+                    try:
+                        self.update()
+                    except Exception:
+                        pass
                     
                 if event == 'line' and self._is_user_step_frame(frame, script_path, runtime_dir):
                     self.highlight_execution_line(script_path, frame.f_lineno)
@@ -2435,6 +2455,7 @@ class PortableIDE(tk.Tk):
                     self.clear_execution_highlights()
                 return tracer
 
+            time.sleep = patched_sleep
             sys.settrace(tracer)
             try:
                 builtins.input = self._read_gui_input
@@ -2461,11 +2482,11 @@ class PortableIDE(tk.Tk):
             except Exception:
                 self._append_output(traceback.format_exc(), tag='stderr')
             finally:
-                time.sleep = original_sleep
                 sys.settrace(prev_trace)
                 builtins.input = prev_input
                 sys.stdout = prev_stdout
                 sys.stderr = prev_stderr
+                time.sleep = prev_sleep
                 if path_inserted:
                     try:
                         sys.path.remove(script_dir)

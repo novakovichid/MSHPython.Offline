@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import base64
 import builtins
@@ -19,14 +19,41 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 import tokenize
 
+import tkinter.font as tkfont
+
 ROOT_DIR = Path(__file__).resolve().parent.parent
 RUNTIME_DIR = ROOT_DIR / '.runtime'
 PYTHON_DIR = ROOT_DIR / 'python'
 
-EDITOR_FONT = ('Consolas', 12)
-CONSOLE_FONT = ('Consolas', 11)
-LINE_NUMBER_FONT = ('Consolas', 10)
-INPUT_FONT = ('Consolas', 11)
+def get_best_font(families: list[str], default: str = 'monospace') -> str:
+    available = set(f.lower() for f in tkfont.families())
+    for f in families:
+        if f.lower() in available:
+            return f
+    return default
+
+# Font selection based on OS
+if sys.platform == 'darwin':  # macOS
+    MONO_FONT_NAME = get_best_font(['Menlo', 'Monaco', 'SF Mono', 'Courier New'], 'Courier')
+    UI_FONT_NAME = '.AppleSystemUIFont'
+    UI_FONT_SIZE = 13
+elif os.name == 'nt':  # Windows
+    MONO_FONT_NAME = get_best_font(['Consolas', 'Cascadia Code', 'Courier New'], 'Courier New')
+    UI_FONT_NAME = 'Segoe UI'
+    UI_FONT_SIZE = 10
+else:  # Linux
+    MONO_FONT_NAME = get_best_font(['JetBrains Mono', 'DejaVu Sans Mono', 'Ubuntu Mono', 'Liberation Mono'], 'monospace')
+    UI_FONT_NAME = get_best_font(['Ubuntu', 'Cantarell', 'DejaVu Sans', 'sans-serif'], 'sans-serif')
+    UI_FONT_SIZE = 10
+
+EDITOR_FONT = (MONO_FONT_NAME, 12)
+CONSOLE_FONT = (MONO_FONT_NAME, 11)
+LINE_NUMBER_FONT = (MONO_FONT_NAME, 10)
+INPUT_FONT = (MONO_FONT_NAME, 14, 'bold')
+UI_FONT = (UI_FONT_NAME, UI_FONT_SIZE)
+UI_FONT_BOLD = (UI_FONT_NAME, UI_FONT_SIZE, 'bold')
+
+INPUT_WAIT_EMOJI = '⏳' if os.name == 'nt' else '⚡'
 
 INPUT_PREFIX = '> '
 
@@ -238,7 +265,7 @@ class EditorTab:
         self.text.tag_configure('comment', foreground=theme['syntax_comment'])
         self.text.tag_configure('string', foreground=theme['syntax_string'])
         self.text.tag_configure('number', foreground=theme['syntax_number'])
-        self.text.tag_configure('keyword', foreground=theme['syntax_keyword'], font=('Consolas', 12, 'bold'))
+        self.text.tag_configure('keyword', foreground=theme['syntax_keyword'], font=(MONO_FONT_NAME, 12, 'bold'))
         self.text.tag_configure('builtin', foreground=theme['syntax_builtin'])
         self.text.tag_configure('error', foreground=theme['syntax_error'])
         self.text.tag_configure('execution_line', background=theme['execution_line_bg'])
@@ -412,8 +439,8 @@ class PortableIDE(tk.Tk):
         style.configure('Editor.TFrame', background=theme['panel_bg'])
         style.configure('Toolbar.TFrame', background=theme['toolbar_bg'])
         style.configure('Runbar.TFrame', background=theme['app_bg'])
-        style.configure('TLabel', background=theme['app_bg'], foreground=theme['editor_fg'])
-        style.configure('Toolbar.TLabel', background=theme['panel_bg'], foreground=theme['editor_fg'], font=('Consolas', 12, 'bold'))
+        style.configure('TLabel', background=theme['app_bg'], foreground=theme['editor_fg'], font=UI_FONT)
+        style.configure('Toolbar.TLabel', background=theme['panel_bg'], foreground=theme['editor_fg'], font=UI_FONT_BOLD)
         style.configure(
             'TCheckbutton',
             background=theme['check_bg'],
@@ -546,12 +573,12 @@ class PortableIDE(tk.Tk):
             command=self.show_temp_images_list,
             style='Toolbar.TButton',
         )
-        self.temp_mode_label = ttk.Label(file_toolbar, text='Режим: Обычный', font=('Consolas', 10, 'bold'))
+        self.temp_mode_label = ttk.Label(file_toolbar, text='Режим: Обычный', font=UI_FONT_BOLD)
         self.temp_mode_label.pack(side='right', padx=8)
 
         run_toolbar = ttk.Frame(self, style='Runbar.TFrame')
         run_toolbar.pack(fill='x')
-        ttk.Label(run_toolbar, text='Запуск', font=('Consolas', 11, 'bold')).pack(side='left', padx=(8, 6), pady=6)
+        ttk.Label(run_toolbar, text='Запуск', font=UI_FONT_BOLD).pack(side='left', padx=(8, 6), pady=6)
         self.run_button = ttk.Button(
             run_toolbar,
             text='▶️ Запустить main.py (F5)',
@@ -652,7 +679,7 @@ class PortableIDE(tk.Tk):
         input_shortcuts = ttk.Label(
             input_header, 
             text='Enter — отправить  •  Ctrl+Enter — новая строка',
-            font=('Consolas', 9),
+            font=UI_FONT,
             foreground='#888888'
         )
         input_shortcuts.pack(side='left', padx=(12, 0), anchor='w')
@@ -661,7 +688,7 @@ class PortableIDE(tk.Tk):
             self.input_frame,
             height=6,
             wrap='word',
-            font=('Consolas', 16, 'bold'),
+            font=INPUT_FONT,
             relief='solid',
             bd=2,
             highlightthickness=1,
@@ -772,7 +799,7 @@ class PortableIDE(tk.Tk):
         frame = ttk.Frame(self.settings_window, padding=12)
         frame.pack(fill='both', expand=True)
 
-        ttk.Label(frame, text='Основные', font=('Consolas', 11, 'bold')).pack(anchor='w')
+        ttk.Label(frame, text='Основные', font=UI_FONT_BOLD).pack(anchor='w')
 
         ttk.Checkbutton(
             frame,
@@ -781,7 +808,7 @@ class PortableIDE(tk.Tk):
             command=self._apply_theme,
         ).pack(anchor='w', pady=(6, 0))
 
-        ttk.Label(frame, text='Сохранение перед запуском', font=('Consolas', 11, 'bold')).pack(
+        ttk.Label(frame, text='Сохранение перед запуском', font=UI_FONT_BOLD).pack(
             anchor='w', pady=(12, 0)
         )
 
@@ -1228,7 +1255,7 @@ class PortableIDE(tk.Tk):
 
     def _pulse_input_focus(self) -> None:
         self._waiting_for_input = True
-        self.input_label.configure(text='⚡ Ожидание ввода:')
+        self.input_label.configure(text=f'{INPUT_WAIT_EMOJI} Ожидание ввода:')
         self.input_text.configure(
             background='#2563eb',
             foreground='#ffffff',
@@ -1267,9 +1294,11 @@ class PortableIDE(tk.Tk):
         self._waiting_for_input = False
         self.input_text.configure(
             background=self.theme['input_bg'],
+            foreground=self.theme['input_fg'],
             relief='solid',
             bd=2,
         )
+        self.input_label.configure(text='Ввод:')
 
         if self.process and self.process.stdin:
             self._append_input_echo(text)
