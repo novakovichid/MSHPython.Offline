@@ -26,34 +26,55 @@ RUNTIME_DIR = ROOT_DIR / '.runtime'
 PYTHON_DIR = ROOT_DIR / 'python'
 
 def get_best_font(families: list[str], default: str = 'monospace') -> str:
-    available = set(f.lower() for f in tkfont.families())
+    try:
+        available = set(f.lower() for f in tkfont.families())
+    except Exception:
+        # Create a temporary hidden root if called too early
+        temp_root = tk.Tk()
+        temp_root.withdraw()
+        available = set(f.lower() for f in tkfont.families())
+        temp_root.destroy()
+        
     for f in families:
         if f.lower() in available:
             return f
     return default
 
 # Font selection based on OS
-if sys.platform == 'darwin':  # macOS
-    MONO_FONT_NAME = get_best_font(['Menlo', 'Monaco', 'SF Mono', 'Courier New'], 'Courier')
-    UI_FONT_NAME = '.AppleSystemUIFont'
-    UI_FONT_SIZE = 13
-elif os.name == 'nt':  # Windows
-    MONO_FONT_NAME = get_best_font(['Consolas', 'Cascadia Code', 'Courier New'], 'Courier New')
-    UI_FONT_NAME = 'Segoe UI'
-    UI_FONT_SIZE = 10
-else:  # Linux
-    MONO_FONT_NAME = get_best_font(['JetBrains Mono', 'DejaVu Sans Mono', 'Ubuntu Mono', 'Liberation Mono'], 'monospace')
-    UI_FONT_NAME = get_best_font(['Ubuntu', 'Cantarell', 'DejaVu Sans', 'sans-serif'], 'sans-serif')
-    UI_FONT_SIZE = 10
+try:
+    if sys.platform == 'darwin':  # macOS
+        MONO_FONT_NAME = get_best_font(['Menlo', 'Monaco', 'SF Mono', 'Courier New'], 'Courier')
+        UI_FONT_NAME = '.AppleSystemUIFont'
+        UI_FONT_SIZE = 13
+    elif os.name == 'nt':  # Windows
+        MONO_FONT_NAME = get_best_font(['Consolas', 'Cascadia Code', 'Courier New'], 'Courier New')
+        UI_FONT_NAME = 'Segoe UI'
+        UI_FONT_SIZE = 10
+    else:  # Linux
+        # libtk is now Xft-capable, so we can use fontconfig names
+        MONO_FONT_NAME = get_best_font(['DejaVu Sans Mono', 'Ubuntu Mono', 'Liberation Mono'], 'monospace')
+        UI_FONT_NAME = 'sans-serif'  # Fontconfig will pick DejaVu Sans / Ubuntu
+        UI_FONT_SIZE = 11
+except Exception:
+    MONO_FONT_NAME = 'monospace'
+    UI_FONT_NAME = 'sans-serif'
+    UI_FONT_SIZE = 11
 
 EDITOR_FONT = (MONO_FONT_NAME, 12)
 CONSOLE_FONT = (MONO_FONT_NAME, 11)
 LINE_NUMBER_FONT = (MONO_FONT_NAME, 10)
 INPUT_FONT = (MONO_FONT_NAME, 14, 'bold')
 UI_FONT = (UI_FONT_NAME, UI_FONT_SIZE)
-UI_FONT_BOLD = (UI_FONT_NAME, UI_FONT_SIZE, 'bold')
+# Use bold only where supported well
+UI_FONT_BOLD = (UI_FONT_NAME, UI_FONT_SIZE, 'bold' if os.name == 'nt' or sys.platform == 'darwin' else 'normal')
 
-INPUT_WAIT_EMOJI = '⏳' if os.name == 'nt' else '⚡'
+def icon(e: str, t: str) -> str:
+    """Returns emoji + text for Windows/Mac, or simple text for Linux"""
+    if os.name == 'nt' or sys.platform == 'darwin':
+        return f'{e} {t}'
+    return t
+
+INPUT_WAIT_EMOJI = '⏳' if os.name == 'nt' else '...'
 
 INPUT_PREFIX = '> '
 
@@ -429,12 +450,16 @@ class PortableIDE(tk.Tk):
     def _apply_style(self) -> None:
         style = ttk.Style(self)
         try:
-            style.theme_use('clam')
+            if sys.platform.startswith('linux'):
+                style.theme_use('alt')
+            else:
+                style.theme_use('clam')
         except Exception:
             pass
 
         theme = self.theme
         self.configure(background=theme['app_bg'])
+        style.configure('.', font=UI_FONT)
         style.configure('TFrame', background=theme['app_bg'])
         style.configure('Editor.TFrame', background=theme['panel_bg'])
         style.configure('Toolbar.TFrame', background=theme['toolbar_bg'])
@@ -458,7 +483,7 @@ class PortableIDE(tk.Tk):
             bordercolor=theme['scrollbar_trough'],
             arrowcolor=theme['editor_fg'],
         )
-        style.configure('Toolbar.TButton', background=theme['accent'], foreground='white', padding=(12, 6), borderwidth=0)
+        style.configure('Toolbar.TButton', background=theme['accent'], foreground='white', padding=(16, 8), borderwidth=0)
         style.map(
             'Toolbar.TButton',
             background=[('active', theme['accent_dark'])],
@@ -534,42 +559,42 @@ class PortableIDE(tk.Tk):
 
         file_toolbar = ttk.Frame(self, style='Toolbar.TFrame')
         file_toolbar.pack(fill='x')
-        ttk.Button(file_toolbar, text='🆕 Новый', command=self.new_tab, style='Toolbar.TButton').pack(
+        ttk.Button(file_toolbar, text=icon('🆕', 'Новый'), command=self.new_tab, style='Toolbar.TButton').pack(
             side='left', padx=4, pady=6
         )
-        ttk.Button(file_toolbar, text='📂 Открыть', command=self.open_file, style='Toolbar.TButton').pack(
+        ttk.Button(file_toolbar, text=icon('📂', 'Открыть'), command=self.open_file, style='Toolbar.TButton').pack(
             side='left', padx=4, pady=6
         )
-        ttk.Button(file_toolbar, text='💾 Сохранить', command=self.save_file, style='Toolbar.TButton').pack(
+        ttk.Button(file_toolbar, text=icon('💾', 'Сохранить'), command=self.save_file, style='Toolbar.TButton').pack(
             side='left', padx=4, pady=6
         )
-        ttk.Button(file_toolbar, text='💾 Сохранить все', command=self.save_all, style='Toolbar.TButton').pack(
+        ttk.Button(file_toolbar, text=icon('💾', 'Сохранить все'), command=self.save_all, style='Toolbar.TButton').pack(
             side='left', padx=4, pady=6
         )
         ttk.Separator(file_toolbar, orient='vertical').pack(side='left', fill='y', padx=2, pady=6)
-        ttk.Button(file_toolbar, text='🗜️ Архив', command=self.save_archive, style='Toolbar.TButton').pack(
+        ttk.Button(file_toolbar, text=icon('🗜️', 'Архив'), command=self.save_archive, style='Toolbar.TButton').pack(
             side='left', padx=4, pady=6
         )
         ttk.Button(
             file_toolbar,
-            text='✏️ Переименовать',
+            text=icon('✏️', 'Переименовать'),
             command=self.rename_current_tab,
             style='Toolbar.TButton',
         ).pack(side='left', padx=4, pady=6)
         ttk.Separator(file_toolbar, orient='vertical').pack(side='left', fill='y', padx=2, pady=6)
-        ttk.Button(file_toolbar, text='❌ Закрыть', command=self.close_current_tab, style='Toolbar.TButton').pack(
+        ttk.Button(file_toolbar, text=icon('❌', 'Закрыть'), command=self.close_current_tab, style='Toolbar.TButton').pack(
             side='left', padx=4, pady=6
         )
         ttk.Separator(file_toolbar, orient='vertical').pack(side='left', fill='y', padx=2, pady=6)
         self.temp_import_button = ttk.Button(
             file_toolbar,
-            text='🖼 Импорт картинок',
+            text=icon('🖼', 'Импорт картинок'),
             command=self.import_temp_images,
             style='Toolbar.TButton',
         )
         self.temp_show_images_button = ttk.Button(
             file_toolbar,
-            text='📂 Список картинок',
+            text=icon('📂', 'Список картинок'),
             command=self.show_temp_images_list,
             style='Toolbar.TButton',
         )
@@ -581,20 +606,20 @@ class PortableIDE(tk.Tk):
         ttk.Label(run_toolbar, text='Запуск', font=UI_FONT_BOLD).pack(side='left', padx=(8, 6), pady=6)
         self.run_button = ttk.Button(
             run_toolbar,
-            text='▶️ Запустить main.py (F5)',
+            text=icon('▶️', 'Запустить (F5)'),
             command=self.run_current,
             style='Run.TButton',
         )
         self.run_button.pack(side='left', padx=4, pady=6)
         ttk.Button(
             run_toolbar,
-            text='⏭ Построчно',
+            text=icon('⏭', 'Построчно'),
             command=self.run_current_step,
             style='Run.TButton',
         ).pack(side='left', padx=4, pady=6)
         self.stop_button = ttk.Button(
             run_toolbar,
-            text='⏹ Остановить',
+            text=icon('⏹', 'Остановить'),
             command=self.stop_process,
             style='Stop.TButton',
         )
@@ -715,34 +740,34 @@ class PortableIDE(tk.Tk):
         self.menubar = tk.Menu(self)
 
         self.file_menu = tk.Menu(self.menubar, tearoff=0)
-        self.file_menu.add_command(label='🆕 Новый', command=self.new_tab)
-        self.file_menu.add_command(label='📂 Открыть…', command=self.open_file)
-        self.file_menu.add_command(label='💾 Сохранить', command=self.save_file)
-        self.file_menu.add_command(label='💾 Сохранить как…', command=self.save_file_as)
-        self.file_menu.add_command(label='💾 Сохранить все', command=self.save_all)
-        self.file_menu.add_command(label='✏️ Переименовать модуль', command=self.rename_current_tab)
+        self.file_menu.add_command(label=icon('🆕', 'Новый'), command=self.new_tab)
+        self.file_menu.add_command(label=icon('📂', 'Открыть…'), command=self.open_file)
+        self.file_menu.add_command(label=icon('💾', 'Сохранить'), command=self.save_file)
+        self.file_menu.add_command(label=icon('💾', 'Сохранить как…'), command=self.save_file_as)
+        self.file_menu.add_command(label=icon('💾', 'Сохранить все'), command=self.save_all)
+        self.file_menu.add_command(label=icon('✏️', 'Переименовать модуль'), command=self.rename_current_tab)
         self.file_menu.add_separator()
-        self.file_menu.add_command(label='❌ Закрыть вкладку', command=self.close_current_tab)
-        self.file_menu.add_command(label='🔄 Перезапустить приложение', command=self.restart_app)
-        self.file_menu.add_command(label='🚪 Выход', command=self.on_exit)
+        self.file_menu.add_command(label=icon('❌', 'Закрыть вкладку'), command=self.close_current_tab)
+        self.file_menu.add_command(label=icon('🔄', 'Перезапустить приложение'), command=self.restart_app)
+        self.file_menu.add_command(label=icon('🚪', 'Выход'), command=self.on_exit)
 
         self.run_menu = tk.Menu(self.menubar, tearoff=0)
-        self.run_menu.add_command(label='▶️ Запустить main.py (F5)', command=self.run_current)
-        self.run_menu.add_command(label='⏭ Построчно', command=self.run_current_step)
-        self.run_menu.add_command(label='⏹ Остановить (Shift+F5)', command=self.stop_process)
+        self.run_menu.add_command(label=icon('▶️', 'Запустить (F5)'), command=self.run_current)
+        self.run_menu.add_command(label=icon('⏭', 'Построчно'), command=self.run_current_step)
+        self.run_menu.add_command(label=icon('⏹', 'Остановить (Shift+F5)'), command=self.stop_process)
         self.run_menu.add_separator()
-        self.run_menu.add_command(label='🧹 Очистить консоль', command=self.clear_console)
+        self.run_menu.add_command(label=icon('🧹', 'Очистить консоль'), command=self.clear_console)
 
         self.tools_menu = tk.Menu(self.menubar, tearoff=0)
-        self.tools_menu.add_command(label='↦ Сделать отступ', command=self.indent_selection)
+        self.tools_menu.add_command(label='Сделать отступ', command=self.indent_selection)
         self.tools_menu.add_separator()
-        self.tools_menu.add_command(label='🔐 Экспорт кода проекта', command=self.export_project_hash)
-        self.tools_menu.add_command(label='🔐 Импорт кода проекта', command=self.import_project_hash)
+        self.tools_menu.add_command(label='Экспорт кода проекта', command=self.export_project_hash)
+        self.tools_menu.add_command(label='Импорт кода проекта', command=self.import_project_hash)
 
         self.menubar.add_cascade(label='Файл', menu=self.file_menu)
         self.menubar.add_cascade(label='Запуск', menu=self.run_menu)
         self.menubar.add_cascade(label='Полезное', menu=self.tools_menu)
-        self.menubar.add_command(label='⚙ Настройки', command=self._open_settings)
+        self.menubar.add_command(label=icon('⚙', 'Настройки'), command=self._open_settings)
         self.config(menu=self.menubar)
         self._apply_menu_theme()
 
@@ -852,7 +877,7 @@ class PortableIDE(tk.Tk):
     def _update_temp_mode_ui(self) -> None:
         active = self._temporary_mode_active()
         if self.temp_mode_label:
-            status = 'Временные файлы' if active else 'Обычный режим'
+            status = 'Временные файлы' if active else 'Обычный'
             self.temp_mode_label.configure(text=f'Режим: {status}')
         if self.temp_import_button:
             if active:
@@ -973,10 +998,10 @@ class PortableIDE(tk.Tk):
     def _update_run_controls(self) -> None:
         running = self._is_running()
         if running:
-            self.run_button.configure(text='🔁 Перезапустить main.py (F5)')
+            self.run_button.configure(text=icon('🔁', 'Перезапустить (F5)'))
             self.stop_button.state(['!disabled'])
         else:
-            self.run_button.configure(text='▶️ Запустить main.py (F5)')
+            self.run_button.configure(text=icon('▶️', 'Запустить (F5)'))
             self.stop_button.state(['disabled'])
 
     def _apply_menu_theme(self) -> None:
