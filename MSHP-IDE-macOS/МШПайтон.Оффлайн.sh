@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
+
+# На macOS снимаем атрибут карантина со всего портативного дистрибутива,
+# чтобы избежать блокировок Gatekeeper (ошибки вида "Killed: 9" или "разработчик не подтвержден")
+if [[ "$(uname)" == "Darwin" ]]; then
+  xattr -d -r com.apple.quarantine "$ROOT" 2>/dev/null || true
+fi
+
 ARCH="$(uname -m)"
 PYDIR=""
 
@@ -34,8 +41,8 @@ if [[ -z "$PY" ]]; then
   exit 1
 fi
 
-if [[ -f "$PY" && ! -x "$PY" ]]; then
-  chmod +x "$PY" 2>/dev/null || true
+if [[ -d "$PYDIR/bin" ]]; then
+  chmod +x "$PYDIR"/bin/* 2>/dev/null || true
 fi
 
 if [[ -d "$PYDIR/lib/tcl8.6" ]]; then

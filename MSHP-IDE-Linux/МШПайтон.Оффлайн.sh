@@ -48,4 +48,23 @@ export PYTHONHOME="$PYDIR"
 export PYTHON_PORTABLE="$PY"
 export LD_LIBRARY_PATH="$PYDIR/lib:${LD_LIBRARY_PATH:-}"
 
+# Умное переключение между современной Tkinter (Xft, GLIBC 2.38+) и совместимой (GLIBC 2.14+)
+MODERN_TK="$PYDIR/lib/libtk8.6.so.modern"
+COMPAT_TK="$PYDIR/lib/libtk8.6.so.compat"
+
+if [[ -f "$MODERN_TK" && -f "$COMPAT_TK" ]]; then
+  # Пробуем использовать современную версию по умолчанию
+  cp -f "$MODERN_TK" "$PYDIR/lib/libtk8.6.so" 2>/dev/null || true
+  
+  # Проверяем работоспособность Tkinter
+  if ! "$PY" -c "import tkinter" &>/dev/null; then
+    echo "=========================================================================="
+    echo "Предупреждение: Не удалось загрузить стандартную библиотеку Tkinter"
+    echo "(вероятно, из-за старой версии GLIBC или отсутствия libXft на вашей системе)."
+    echo "Автоматически переключаюсь на резервную совместимую версию..."
+    echo "=========================================================================="
+    cp -f "$COMPAT_TK" "$PYDIR/lib/libtk8.6.so" 2>/dev/null || true
+  fi
+fi
+
 exec "$PY" "$ROOT/app/ide.py"
