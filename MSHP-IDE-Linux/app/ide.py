@@ -1928,12 +1928,35 @@ class PortableIDE(tk.Tk):
         if not tab:
             return
         if self._is_running():
-            if not messagebox.askyesno('Процесс уже запущен', 'Остановить текущий процесс и запустить снова?'):
-                return
+            # Кнопка работает как «Перезапустить»: останавливаем текущий
+            # запуск и автоматически стартуем заново. Запуск нельзя начинать
+            # здесь же синхронно — turtle/пошаговый режим выполняются в главном
+            # потоке через after-колбэки, и этот вызов может быть реентрантным
+            # (из self.update() ещё живого выполнения). Поэтому сначала гасим
+            # текущий запуск, а новый ставим в очередь до его фактического конца.
             if step_mode is None:
                 step_mode = self.step_mode
             self.stop_process()
-        
+            self._schedule_restart(bool(step_mode))
+            return
+        self._start_run(tab, step_mode)
+
+    def _schedule_restart(self, step_mode: bool) -> None:
+        # Ждём, пока предыдущий запуск действительно завершится (сбросит
+        # process/turtle_running/inline_running), и только потом стартуем заново.
+        if self._closing:
+            return
+        if self._is_running():
+            self.after(50, lambda: self._schedule_restart(step_mode))
+            return
+        tab = self.main_tab or self.get_current_tab()
+        if tab is None or tab is not self.main_tab:
+            tab = self._ensure_main_tab()
+        if not tab:
+            return
+        self._start_run(tab, step_mode)
+
+    def _start_run(self, tab: EditorTab, step_mode: bool | None) -> None:
         if step_mode is None:
             step_mode = False
 
