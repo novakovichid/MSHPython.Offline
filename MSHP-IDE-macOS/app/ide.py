@@ -399,7 +399,7 @@ class PortableIDE(tk.Tk):
         self._set_app_icon()
 
         self.process: subprocess.Popen[str] | None = None
-        self.output_queue: queue.Queue[tuple[str, str | None]] = queue.Queue()
+        self.output_queue: queue.Queue[tuple[str, str | None, subprocess.Popen[str]]] = queue.Queue()
         self.input_queue: queue.Queue[str] = queue.Queue()
         self.dark_mode = tk.BooleanVar(value=False)
         self.save_on_run_preference: bool | None = None
@@ -415,6 +415,8 @@ class PortableIDE(tk.Tk):
         self._turtle_setworld = None
         self._turtle_initialized = False
         self._closing = False
+        self._restart_pending = False
+        self._silenced_procs: set[subprocess.Popen[str]] = set()
         self._main_created = False
         self._module_counter = 0
         self.save_before_run_var = tk.StringVar(value='ask')
@@ -996,7 +998,11 @@ class PortableIDE(tk.Tk):
         return self.process is not None or self.turtle_running or self.inline_running
 
     def _update_run_controls(self) -> None:
-        running = self._is_running()
+        # _restart_pending тоже считаем «работающим»: пока перезапуск ждёт
+        # фактической остановки старого запуска, кнопка должна оставаться в
+        # состоянии «Перезапустить», иначе видно ложное «Запустить» и можно
+        # кликнуть повторно.
+        running = self._is_running() or self._restart_pending
         if running:
             self.run_button.configure(text=icon('🔁', 'Перезапустить (F5)'))
             self.stop_button.state(['!disabled'])
@@ -1880,6 +1886,11 @@ class PortableIDE(tk.Tk):
         self.step_abort = True
         for tab in list(self.tabs_by_frame.values()):
             if not self._confirm_discard(tab):
+                # Закрытие отменено — восстанавливаем флаги, иначе застрявший
+                # _closing навсегда ломает перезапуск и обрывает текущий запуск.
+                self._closing = False
+                self.turtle_abort = False
+                self.step_abort = False
                 return
         self.stop_process()
         self._clear_temp_session()
@@ -1892,6 +1903,8 @@ class PortableIDE(tk.Tk):
         for tab in list(self.tabs_by_frame.values()):
             if not self._confirm_discard(tab):
                 self._closing = False
+                self.turtle_abort = False
+                self.step_abort = False
                 return
         self.stop_process()
         self._clear_temp_session()
@@ -1922,6 +1935,11 @@ class PortableIDE(tk.Tk):
         os.execv(executable, args)
 
     def run_current(self, step_mode: bool | None = None) -> None:
+        if self._restart_pending:
+            # Перезапуск уже запланирован — игнорируем повторные клики/F5/меню,
+            # иначе накопятся параллельные цепочки _schedule_restart и программа
+            # запустится несколько раз подряд.
+            return
         tab = self.main_tab or self.get_current_tab()
         if tab is None or tab is not self.main_tab:
             tab = self._ensure_main_tab()
@@ -1936,6 +1954,8 @@ class PortableIDE(tk.Tk):
             # текущий запуск, а новый ставим в очередь до его фактического конца.
             if step_mode is None:
                 step_mode = self.step_mode
+            self._restart_pending = True
+            self._update_run_controls()
             self.stop_process()
             self._schedule_restart(bool(step_mode))
             return
@@ -1945,6 +1965,7 @@ class PortableIDE(tk.Tk):
         # Ждём, пока предыдущий запуск действительно завершится (сбросит
         # process/turtle_running/inline_running), и только потом стартуем заново.
         if self._closing:
+            self._restart_pending = False
             return
         if self._is_running():
             self.after(50, lambda: self._schedule_restart(step_mode))
@@ -1952,7 +1973,11 @@ class PortableIDE(tk.Tk):
         tab = self.main_tab or self.get_current_tab()
         if tab is None or tab is not self.main_tab:
             tab = self._ensure_main_tab()
+        # Снимаем флаг перед стартом: дальше состояние «работает» обеспечит сам
+        # новый запуск.
+        self._restart_pending = False
         if not tab:
+            self._update_run_controls()
             return
         self._start_run(tab, step_mode)
 
@@ -1967,6 +1992,10 @@ class PortableIDE(tk.Tk):
 
         self.step_mode = bool(step_mode)
         self.step_abort = False
+        # turtle_abort мог остаться True после перезапуска turtle-программы
+        # (stop_process для turtle лишь выставляет флаг). Если его не сбросить,
+        # новый запуск с input() через _read_gui_input мгновенно завершится.
+        self.turtle_abort = False
         self.step_event.clear()
         self._show_step_controls(self.step_mode)
 
@@ -2030,9 +2059,10 @@ class PortableIDE(tk.Tk):
             self.process = None
             return
 
-        threading.Thread(target=self._read_stream, args=(self.process.stdout, 'stdout'), daemon=True).start()
-        threading.Thread(target=self._read_stream, args=(self.process.stderr, 'stderr'), daemon=True).start()
-        threading.Thread(target=self._watch_process, daemon=True).start()
+        proc = self.process
+        threading.Thread(target=self._read_stream, args=(proc, proc.stdout, 'stdout'), daemon=True).start()
+        threading.Thread(target=self._read_stream, args=(proc, proc.stderr, 'stderr'), daemon=True).start()
+        threading.Thread(target=self._watch_process, args=(proc,), daemon=True).start()
         self._update_run_controls()
 
     def _code_uses_turtle(self, code: str) -> bool:
@@ -2418,13 +2448,14 @@ class PortableIDE(tk.Tk):
                     time.sleep = prev_sleep
                 self.turtle_running = False
                 self.step_mode = False
-                self._show_step_controls(False)
-                self._update_run_controls()
-                if self.turtle_screen:
-                    try:
-                        self.turtle_screen.update()
-                    except Exception:
-                        pass
+                if not self._closing:
+                    self._show_step_controls(False)
+                    self._update_run_controls()
+                    if self.turtle_screen:
+                        try:
+                            self.turtle_screen.update()
+                        except Exception:
+                            pass
                 if path_inserted:
                     try:
                         sys.path.remove(script_dir)
@@ -2439,7 +2470,8 @@ class PortableIDE(tk.Tk):
                     os.chdir(prev_cwd)
                 except OSError:
                     pass
-                self._append_output('Готово.\n', tag='status')
+                if not self._closing:
+                    self._append_output('Готово.\n', tag='status')
 
         self.after(10, _execute)
 
@@ -2572,9 +2604,10 @@ class PortableIDE(tk.Tk):
                     pass
                 self.inline_running = False
                 self.step_mode = False
-                self._show_step_controls(False)
-                self._update_run_controls()
-                self._append_output('Готово.\n', tag='status')
+                if not self._closing:
+                    self._show_step_controls(False)
+                    self._update_run_controls()
+                    self._append_output('Готово.\n', tag='status')
 
         self.after(10, _execute)
 
@@ -2764,28 +2797,45 @@ class PortableIDE(tk.Tk):
                     pass
         return self.temp_session_dir / self._temp_name_for_tab(primary_tab)
 
-    def _read_stream(self, stream, tag: str) -> None:
+    def _read_stream(self, proc, stream, tag: str) -> None:
         if stream is None:
             return
         while True:
             chunk = stream.read(1)
             if chunk == '':
                 break
-            self.output_queue.put((tag, chunk))
+            self.output_queue.put((tag, chunk, proc))
         stream.close()
 
-    def _watch_process(self) -> None:
-        if not self.process:
+    def _watch_process(self, proc) -> None:
+        if proc is None:
             return
-        code = self.process.wait()
-        self.output_queue.put(('status', f'\nПроцесс завершён, код: {code}\n'))
-        self.output_queue.put(('done', None))
+        code = proc.wait()
+        self.output_queue.put(('status', f'\nПроцесс завершён, код: {code}\n', proc))
+        self.output_queue.put(('done', None, proc))
 
     def _poll_output(self) -> None:
+        if self._closing:
+            # Окно закрывается/перезапускается — не трогаем виджеты и не
+            # перепланируем колбэк на уже разрушенном Tk.
+            return
         items: list[tuple[str, str]] = []
         try:
             while True:
-                tag, text = self.output_queue.get_nowait()
+                tag, text, owner = self.output_queue.get_nowait()
+                # Намеренно остановленный процесс: гасим весь его вывод и статус
+                # (об остановке уже сообщили), на 'done' снимаем пометку.
+                if owner in self._silenced_procs:
+                    if tag == 'done':
+                        self._silenced_procs.discard(owner)
+                    continue
+                # Сообщения от прежнего запуска игнорируем ТОЛЬКО если уже есть
+                # новый процесс: иначе их 'done' обнулит self.process нового
+                # процесса после перезапуска, а старый вывод засорит консоль.
+                # Если нового процесса нет (self.process is None) — это обычное
+                # завершение, показываем хвостовой вывод и статус как есть.
+                if self.process is not None and owner is not self.process:
+                    continue
                 if tag == 'done':
                     self.process = None
                     self._update_run_controls()
@@ -2833,12 +2883,18 @@ class PortableIDE(tk.Tk):
         if not self.process:
             self._update_run_controls()
             return
+        proc = self.process
+        # Помечаем процесс «заглушённым»: мы убиваем его намеренно, поэтому
+        # сообщение его наблюдателя «Процесс завершён, код: N» не нужно — иначе
+        # после ручного «Остановить»/перезапуска в консоли появляется и
+        # «Остановлено», и противоречащий ему код завершения.
+        self._silenced_procs.add(proc)
         try:
-            self.process.terminate()
-            self.process.wait(timeout=1.5)
+            proc.terminate()
+            proc.wait(timeout=1.5)
         except Exception:
             try:
-                self.process.kill()
+                proc.kill()
             except Exception:
                 pass
         self.process = None
