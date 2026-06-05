@@ -1897,6 +1897,27 @@ class PortableIDE(tk.Tk):
         self._clear_temp_session()
         executable = sys.executable
         args = [executable] + sys.argv
+        if os.name == 'nt':
+            # На Windows настоящего exec нет: os.execv порождает новый процесс
+            # и асинхронно завершает текущий. Из-за этого старый экземпляр
+            # (окно, удержанные хендлы временной сессии, дочерние процессы)
+            # может пережить перезапуск и конфликтовать с новым — отсюда
+            # «куча ошибок». Поэтому запускаем новый экземпляр независимым
+            # процессом и гарантированно завершаем текущий.
+            DETACHED_PROCESS = 0x00000008
+            CREATE_NEW_PROCESS_GROUP = 0x00000200
+            try:
+                subprocess.Popen(
+                    args,
+                    close_fds=True,
+                    creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
+                )
+            except Exception as exc:
+                self._closing = False
+                messagebox.showerror('Не удалось перезапустить', str(exc))
+                return
+            self.destroy()
+            os._exit(0)
         self.destroy()
         os.execv(executable, args)
 
